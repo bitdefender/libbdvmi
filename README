@@ -1,0 +1,4 @@
+Libbdvmi
+
+./bootstrap && ./configure && make
+
