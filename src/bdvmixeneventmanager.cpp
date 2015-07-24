@@ -86,207 +86,23 @@ extern "C" {
 
 namespace bdvmi {
 
-#if ( __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040500 )
-
 XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper )
     : driver_( driver ), xci_( driver.nativeHandle() ), domain_( driver.id() ), stop_( false ), xce_( NULL ),
       port_( -1 ), xsh_( NULL ), evtchnPort_( 0 ), ringPage_( NULL ), memAccessOn_( false ), evtchnOn_( false ),
       evtchnBindOn_( false ), handlerFlags_( 0 ), guestStillRunning_( true ), logHelper_( logHelper )
 {
-	std::stringstream ss;
-	ss << domain_;
-	watchToken_ = ss.str();
-
-	xsh_ = xs_open( 0 );
-
-	if ( !xsh_ )
-		throw Exception( "[Xen events] xs_open() failed" );
-
-	if ( !xs_watch( xsh_, "@releaseDomain", watchToken_.c_str() ) ) {
-		xs_close( xsh_ );
-		throw Exception( "[Xen events] xs_watch() failed" );
-	}
+	initXenStore();
 
 #ifndef DISABLE_MEM_EVENT
-/* Enable mem_access */
-
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040500
-	ringPage_ = xc_mem_access_enable_introspection( xci_, domain_, &evtchnPort_ );
-#else // 406
-	ringPage_ = xc_monitor_enable( xci_, domain_, &evtchnPort_ );
-#endif
-
-	if ( ringPage_ == NULL ) {
-		cleanup();
-
-		switch ( errno ) {
-			case EBUSY:
-				throw Exception( "[Xen events] xenaccess is (or was) active on this domain" );
-			case ENODEV:
-				throw Exception( "[Xen events] EPT not supported for this guest" );
-			default:
-				throw Exception( "[Xen events] error initialising shared page" );
-		}
-	}
-
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
-	if ( xc_mem_access_enable_emulate( xci_, domain_ ) )
-		throw Exception( "[Xen events] could not enable mem_access instruction emulation" );
-#endif
-
-	memAccessOn_ = true;
-
-	/* Open event channel */
-	xce_ = xc_evtchn_open( NULL, 0 );
-
-	if ( !xce_ ) {
-		cleanup();
-		throw Exception( "[Xen events] failed to open event channel" );
-	}
-
-	evtchnOn_ = true;
-
-	/* Bind event notification */
-	port_ = xc_evtchn_bind_interdomain( xce_, domain_, evtchnPort_ );
-
-	if ( port_ < 0 ) {
-		cleanup();
-		throw Exception( "[Xen events] failed to bind event channel" );
-	}
-
-	evtchnBindOn_ = true;
-
-/* Initialise ring */
-#define private rprivate
-	SHARED_RING_INIT( ( mem_event_sring_t * )ringPage_ );
-	BACK_RING_INIT( &backRing_, ( mem_event_sring_t * )ringPage_, XC_PAGE_SIZE );
-#undef private
-
-	xc_domain_set_access_required( xci_, domain_, 0 );
+	initMemAccess();
 
 	if ( !handlerFlags( hndlFlags ) ) {
 		cleanup();
 		throw Exception( "[Xen events] could not set up events" );
 	}
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
-	xc_monitor_guest_request( xci_, domain_, 1, 1 );
-	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 1, 1, 1 );
-#endif
-
 #endif // DISABLE_MEM_EVENT
 }
-
-#elif( __XEN_LATEST_INTERFACE_VERSION__ == 0x00040300 || __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400 )
-
-XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper )
-    : driver_( driver ), xci_( driver.nativeHandle() ), domain_( driver.id() ), stop_( false ), xce_( NULL ),
-      port_( -1 ), xsh_( NULL ), evtchnPort_( 0 ), ringPage_( NULL ), memAccessOn_( false ), evtchnOn_( false ),
-      evtchnBindOn_( false ), handlerFlags_( 0 ), guestStillRunning_( true ), logHelper_( logHelper )
-{
-	std::stringstream ss;
-	ss << domain_;
-	watchToken_ = ss.str();
-
-	xsh_ = xs_open( 0 );
-
-	if ( !xsh_ )
-		throw Exception( "[Xen events] xs_open() failed" );
-
-	if ( !xs_watch( xsh_, "@releaseDomain", watchToken_.c_str() ) ) {
-		xs_close( xsh_ );
-		throw Exception( "[Xen events] xs_watch() failed" );
-	}
-
-#ifndef DISABLE_MEM_EVENT
-	/* Map the ring page */
-	unsigned long ring_pfn;
-	xc_get_hvm_param( xci_, domain_, HVM_PARAM_ACCESS_RING_PFN, &ring_pfn );
-
-	unsigned long mmap_pfn = ring_pfn;
-	ringPage_ = xc_map_foreign_batch( xci_, domain_, PROT_READ | PROT_WRITE, &mmap_pfn, 1 );
-
-	if ( mmap_pfn & XEN_DOMCTL_PFINFO_XTAB ) {
-
-		/* Map failed, populate ring page */
-		if ( xc_domain_populate_physmap_exact( xci_, domain_, 1, 0, 0, &ring_pfn ) ) {
-			cleanup();
-			throw Exception( "[Xen events] failed to populate ring GFN" );
-		}
-
-		mmap_pfn = ring_pfn;
-		ringPage_ = xc_map_foreign_batch( xci_, domain_, PROT_READ | PROT_WRITE, &mmap_pfn, 1 );
-
-		if ( mmap_pfn & XEN_DOMCTL_PFINFO_XTAB ) {
-			cleanup();
-			throw Exception( "[Xen events] could not map the ring page" );
-		}
-	}
-
-/* Initialise Xen */
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400
-	if ( xc_mem_access_enable_introspection( xci_, domain_, &evtchnPort_ ) ) {
-#else
-	if ( xc_mem_access_enable( xci_, domain_, &evtchnPort_ ) ) {
-#endif
-		cleanup();
-
-		switch ( errno ) {
-			case EBUSY:
-				throw Exception( "[Xen events] xenaccess is (or was) active on this domain" );
-			case ENODEV:
-				throw Exception( "[Xen events] EPT not supported for this guest" );
-			default:
-				throw Exception( "[Xen events] error initialising shared page" );
-		}
-	}
-
-	memAccessOn_ = true;
-
-	/* Open event channel */
-	xce_ = xc_evtchn_open( NULL, 0 );
-
-	if ( !xce_ ) {
-		cleanup();
-		throw Exception( "[Xen events] failed to open event channel" );
-	}
-
-	evtchnOn_ = true;
-
-	/* Bind event notification */
-	port_ = xc_evtchn_bind_interdomain( xce_, domain_, evtchnPort_ );
-
-	if ( port_ < 0 ) {
-		cleanup();
-		throw Exception( "[Xen events] failed to bind event channel" );
-	}
-
-	evtchnBindOn_ = true;
-
-/* Initialise ring */
-#define private rprivate
-	SHARED_RING_INIT( ( mem_event_sring_t * )ringPage_ );
-	BACK_RING_INIT( &backRing_, ( mem_event_sring_t * )ringPage_, XC_PAGE_SIZE );
-#undef private
-
-	/* Now that the ring is set, remove it from the guest's physmap */
-	if ( xc_domain_decrease_reservation_exact( xci_, domain_, 1, 0, &ring_pfn ) ) {
-		cleanup();
-		throw Exception( "[Xen events] failed to remove ring from guest physmap" );
-	}
-
-	xc_domain_set_access_required( xci_, domain_, 0 );
-
-	if ( !handlerFlags( hndlFlags ) ) {
-		cleanup();
-		throw Exception( "[Xen events] could not set up events" );
-	}
-#endif // DISABLE_MEM_EVENT
-}
-
-#else
-#error unsupported Xen version
-#endif
 
 XenEventManager::~XenEventManager()
 {
@@ -759,6 +575,154 @@ void XenEventManager::stop()
 #endif // DISABLE_MEM_EVENT
 }
 
+void XenEventManager::initXenStore()
+{
+	std::stringstream ss;
+	ss << domain_;
+	watchToken_ = ss.str();
+
+	xsh_ = xs_open( 0 );
+
+	if ( !xsh_ )
+		throw Exception( "[Xen events] xs_open() failed" );
+
+	if ( !xs_watch( xsh_, "@releaseDomain", watchToken_.c_str() ) ) {
+		xs_close( xsh_ );
+		throw Exception( "[Xen events] xs_watch() failed" );
+	}
+}
+
+void XenEventManager::initEventChannels()
+{
+	/* Open event channel */
+	xce_ = xc_evtchn_open( NULL, 0 );
+
+	if ( !xce_ ) {
+		cleanup();
+		throw Exception( "[Xen events] failed to open event channel" );
+	}
+
+	evtchnOn_ = true;
+
+	/* Bind event notification */
+	port_ = xc_evtchn_bind_interdomain( xce_, domain_, evtchnPort_ );
+
+	if ( port_ < 0 ) {
+		cleanup();
+		throw Exception( "[Xen events] failed to bind event channel" );
+	}
+
+	evtchnBindOn_ = true;
+
+/* Initialise ring */
+#define private rprivate
+	SHARED_RING_INIT( ( mem_event_sring_t * )ringPage_ );
+	BACK_RING_INIT( &backRing_, ( mem_event_sring_t * )ringPage_, XC_PAGE_SIZE );
+#undef private
+}
+
+#if ( __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040500 )
+
+void XenEventManager::initMemAccess()
+{
+#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040500
+	ringPage_ = xc_mem_access_enable_introspection( xci_, domain_, &evtchnPort_ );
+#else // 406
+	ringPage_ = xc_monitor_enable( xci_, domain_, &evtchnPort_ );
+#endif
+
+	if ( ringPage_ == NULL ) {
+		cleanup();
+
+		switch ( errno ) {
+			case EBUSY:
+				throw Exception( "[Xen events] xenaccess is (or was) active on this domain" );
+			case ENODEV:
+				throw Exception( "[Xen events] EPT not supported for this guest" );
+			default:
+				throw Exception( "[Xen events] error initialising shared page" );
+		}
+	}
+
+#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+	if ( xc_mem_access_enable_emulate( xci_, domain_ ) )
+		throw Exception( "[Xen events] could not enable mem_access instruction emulation" );
+#endif
+
+	memAccessOn_ = true;
+
+	initEventChannels();
+
+	xc_domain_set_access_required( xci_, domain_, 0 );
+
+#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+	xc_monitor_guest_request( xci_, domain_, 1, 1 );
+	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 1, 1, 1 );
+#endif
+}
+
+#elif( __XEN_LATEST_INTERFACE_VERSION__ == 0x00040300 || __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400 )
+
+void XenEventManager::initMemAccess()
+{
+	/* Map the ring page */
+	unsigned long ring_pfn;
+	xc_get_hvm_param( xci_, domain_, HVM_PARAM_ACCESS_RING_PFN, &ring_pfn );
+
+	unsigned long mmap_pfn = ring_pfn;
+	ringPage_ = xc_map_foreign_batch( xci_, domain_, PROT_READ | PROT_WRITE, &mmap_pfn, 1 );
+
+	if ( mmap_pfn & XEN_DOMCTL_PFINFO_XTAB ) {
+
+		/* Map failed, populate ring page */
+		if ( xc_domain_populate_physmap_exact( xci_, domain_, 1, 0, 0, &ring_pfn ) ) {
+			cleanup();
+			throw Exception( "[Xen events] failed to populate ring GFN" );
+		}
+
+		mmap_pfn = ring_pfn;
+		ringPage_ = xc_map_foreign_batch( xci_, domain_, PROT_READ | PROT_WRITE, &mmap_pfn, 1 );
+
+		if ( mmap_pfn & XEN_DOMCTL_PFINFO_XTAB ) {
+			cleanup();
+			throw Exception( "[Xen events] could not map the ring page" );
+		}
+	}
+
+#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400
+	if ( xc_mem_access_enable_introspection( xci_, domain_, &evtchnPort_ ) ) {
+#else
+	if ( xc_mem_access_enable( xci_, domain_, &evtchnPort_ ) ) {
+#endif
+		cleanup();
+
+		switch ( errno ) {
+			case EBUSY:
+				throw Exception( "[Xen events] xenaccess is (or was) active on this domain" );
+			case ENODEV:
+				throw Exception( "[Xen events] EPT not supported for this guest" );
+			default:
+				throw Exception( "[Xen events] error initialising shared page" );
+		}
+	}
+
+	memAccessOn_ = true;
+
+	initEventChannels();
+
+	/* Now that the ring is set, remove it from the guest's physmap */
+	if ( xc_domain_decrease_reservation_exact( xci_, domain_, 1, 0, &ring_pfn ) ) {
+		cleanup();
+		throw Exception( "[Xen events] failed to remove ring from guest physmap" );
+	}
+
+	xc_domain_set_access_required( xci_, domain_, 0 );
+}
+
+#else
+#error unsupported Xen version
+#endif
+
 int XenEventManager::waitForEventOrTimeout( int ms )
 {
 #ifndef DISABLE_MEM_EVENT
@@ -884,4 +848,3 @@ std::string XenEventManager::uuid()
 }
 
 } // namespace bdvmi
-

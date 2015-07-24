@@ -80,6 +80,12 @@ public:
 	virtual void stop();
 
 private:
+	void initXenStore();
+
+	void initEventChannels();
+
+	void initMemAccess();
+
 	int waitForEventOrTimeout( int ms );
 
 	void getRequest( mem_event_request_t *req );
@@ -122,4 +128,3 @@ private:
 } // namespace bdvmi
 
 #endif // __BDVMIXENEVENTMANAGER_H_INCLUDED__
-
