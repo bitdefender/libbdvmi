@@ -1,4 +1,20 @@
 Libbdvmi
+(c) 2015 Bitdefender SRL
 
-./bootstrap && ./configure && make
 
+The Xen version that can be used for testing is 4.6.
+To test the library, please issue:
+
+$ ./bootstrap
+$ ./configure
+$ make
+
+This will build the library and the test under examples/.
+
+To see the test in action, run (as root):
+
+# ./hookdomain
+
+in the examples/ subdirectory, then simply start up a Xen domain.
+
+The application can be shut down at any time via ^C.
