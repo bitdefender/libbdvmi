@@ -651,7 +651,6 @@ am__isrc
 INSTALL_DATA
 INSTALL_SCRIPT
 INSTALL_PROGRAM
-xendir
 CPP
 OTOOL64
 OTOOL
@@ -10740,7 +10739,7 @@ ac_config_headers="$ac_config_headers config.h"
 
 
 CXXFLAGS="$CXXFLAGS -W -Wall"
-xendir="/usr"
+XENDIR=""
 
 # Check whether --enable-debug was given.
 if test "${enable_debug+set}" = set; then :
@@ -10757,11 +10756,15 @@ fi
 
 # Check whether --with-xen was given.
 if test "${with_xen+set}" = set; then :
-  withval=$with_xen; xendir="$withval"
+  withval=$with_xen; XENDIR="$withval"
 fi
 
 
-
+if test -n $XENDIR ; then
+    CFLAGS="-I$/XENDIR/include $CFLAGS"
+    CXXFLAGS="-I$XENDIR/include $CXXFLAGS"
+    LDFLAGS="-L$XENDIR/lib -Wl,-rpath,$XENDIR/lib $LDFLAGS"
+fi
 
 am__api_version='1.11'
 

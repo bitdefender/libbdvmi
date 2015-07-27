@@ -78,9 +78,6 @@ am_libbdvmi_la_OBJECTS = bdvmibackendfactory.lo bdvmidomainwatcher.lo \
 	bdvmiexception.lo bdvmixencache.lo bdvmixendomainwatcher.lo \
 	bdvmixendriver.lo bdvmixeneventmanager.lo
 libbdvmi_la_OBJECTS = $(am_libbdvmi_la_OBJECTS)
-libbdvmi_la_LINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) \
-	$(LIBTOOLFLAGS) --mode=link $(CXXLD) $(AM_CXXFLAGS) \
-	$(CXXFLAGS) $(libbdvmi_la_LDFLAGS) $(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -217,10 +214,8 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-xendir = @xendir@
 AM_CPPFLAGS = -I$(top_srcdir)/include -I$(xendir)/include
 lib_LTLIBRARIES = libbdvmi.la
-libbdvmi_la_LDFLAGS = -L$(xendir)/lib -Wl,-rpath,$(xendir)/lib
 libbdvmi_la_SOURCES = bdvmibackendfactory.cpp bdvmidomainwatcher.cpp \
     bdvmiexception.cpp bdvmixencache.cpp bdvmixendomainwatcher.cpp \
     bdvmixendriver.cpp  bdvmixeneventmanager.cpp
@@ -291,7 +286,7 @@ clean-libLTLIBRARIES:
 	  rm -f "$${dir}/so_locations"; \
 	done
 libbdvmi.la: $(libbdvmi_la_OBJECTS) $(libbdvmi_la_DEPENDENCIES) $(EXTRA_libbdvmi_la_DEPENDENCIES) 
-	$(libbdvmi_la_LINK) -rpath $(libdir) $(libbdvmi_la_OBJECTS) $(libbdvmi_la_LIBADD) $(LIBS)
+	$(CXXLINK) -rpath $(libdir) $(libbdvmi_la_OBJECTS) $(libbdvmi_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)

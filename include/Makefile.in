@@ -197,7 +197,6 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-xendir = @xendir@
 include_HEADERS = bdvmi/domainhandler.h bdvmi/driver.h bdvmi/eventmanager.h \
     bdvmi/loghelper.h bdvmi/xendomainwatcher.h bdvmi/xeneventmanager.h \
     bdvmi/backendfactory.h bdvmi/domainwatcher.h bdvmi/eventhandler.h bdvmi/exception.h \

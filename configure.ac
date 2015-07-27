@@ -7,7 +7,7 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS(config.h)
 
 CXXFLAGS="$CXXFLAGS -W -Wall"
-xendir="/usr"
+XENDIR=""
 
 AC_ARG_ENABLE(debug,
     [  --enable-debug          compile with gdb debug information], 
@@ -19,9 +19,13 @@ AC_ARG_ENABLE(optimize,
 
 AC_ARG_WITH(xen,
     [  --with-xen              specify Xen includes and libraries parent directory], 
-    xendir="$withval")
+    XENDIR="$withval")
 
-AC_SUBST(xendir)
+if test -n $XENDIR ; then
+    CFLAGS="-I$/XENDIR/include $CFLAGS"
+    CXXFLAGS="-I$XENDIR/include $CXXFLAGS"
+    LDFLAGS="-L$XENDIR/lib -Wl,-rpath,$XENDIR/lib $LDFLAGS"
+fi
 
 AM_INIT_AUTOMAKE
 AC_PROG_CXX
