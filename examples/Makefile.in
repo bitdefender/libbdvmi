@@ -186,7 +186,6 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-xendir = @xendir@
 AM_CPPFLAGS = -I$(top_srcdir)/include 
 hookguest_SOURCES = hookguest.cpp
 hookguest_LDADD = $(top_srcdir)/src/libbdvmi.la
