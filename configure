@@ -651,6 +651,7 @@ am__isrc
 INSTALL_DATA
 INSTALL_SCRIPT
 INSTALL_PROGRAM
+xendir
 CPP
 OTOOL64
 OTOOL
@@ -740,6 +741,7 @@ with_sysroot
 enable_libtool_lock
 enable_debug
 enable_optimize
+with_xen
 enable_dependency_tracking
 '
       ac_precious_vars='build_alias
@@ -1380,8 +1382,8 @@ Optional Features:
   --enable-fast-install[=PKGS]
                           optimize for fast installation [default=yes]
   --disable-libtool-lock  avoid locking (might break parallel builds)
-  --enable-debug          compile with gdb debug information.
-  --enable-optimize       optimize compiled code (-O2).
+  --enable-debug          compile with gdb debug information
+  --enable-optimize       optimize compiled code (-O2)
   --disable-dependency-tracking  speeds up one-time build
   --enable-dependency-tracking   do not reject slow dependency extractors
 
@@ -1393,6 +1395,7 @@ Optional Packages:
   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
   --with-sysroot=DIR Search for dependent libraries within DIR
                         (or the compiler's sysroot if not specified).
+  --with-xen              specify Xen includes and libraries parent directory
 
 Some influential environment variables:
   CC          C compiler command
@@ -10737,6 +10740,7 @@ ac_config_headers="$ac_config_headers config.h"
 
 
 CXXFLAGS="$CXXFLAGS -W -Wall"
+xendir="/usr"
 
 # Check whether --enable-debug was given.
 if test "${enable_debug+set}" = set; then :
@@ -10748,6 +10752,15 @@ fi
 if test "${enable_optimize+set}" = set; then :
   enableval=$enable_optimize; CXXFLAGS="$CXXFLAGS -O2"
 fi
+
+
+
+# Check whether --with-xen was given.
+if test "${with_xen+set}" = set; then :
+  withval=$with_xen; xendir="$withval"
+fi
+
+
 
 
 am__api_version='1.11'
