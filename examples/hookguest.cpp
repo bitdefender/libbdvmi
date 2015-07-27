@@ -114,13 +114,13 @@ public:
 
 public:
 	// A new domain appeared (that we want to protect)
-	virtual void handleNewProtectedDomain( const std::string &domain )
+	virtual void handleNewProtectedDomain( const string &domain )
 	{
 		cout << "A new domain started running, previously set as protected: " << domain << endl;
 	}
 
 	// A new domain appeared
-	virtual void handleNewUnprotectedDomain( const std::string &domain )
+	virtual void handleNewUnprotectedDomain( const string &domain )
 	{
 		cout << "A new domain started running, won't protect it: " << domain << endl;
 
@@ -139,13 +139,13 @@ public:
 	}
 
 	// A new domain appeared
-	virtual void handleRunningUnprotectedDomain( const std::string &domain )
+	virtual void handleRunningUnprotectedDomain( const string &domain )
 	{
 		cout << "Found already running domain, previously set as protected: " << domain << endl;
 	}
 
 	// A new domain appeared
-	virtual void handleRunningProtectedDomain( const std::string &domain )
+	virtual void handleRunningProtectedDomain( const string &domain )
 	{
 		cout << "Found already running domain, won't protect it: " << domain << endl;
 	}
