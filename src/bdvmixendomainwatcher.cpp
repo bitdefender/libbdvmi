@@ -67,6 +67,7 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 	struct pollfd fd;
 	bool ret = false;
 
+	fd.revents = 0;
 	fd.fd = xs_fileno( xsh_ );
 	fd.events = POLLIN | POLLERR;
 
