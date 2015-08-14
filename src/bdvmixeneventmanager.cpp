@@ -89,8 +89,7 @@ namespace bdvmi {
 XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper )
     : driver_( driver ), xci_( driver.nativeHandle() ), domain_( driver.id() ), stop_( false ), xce_( NULL ),
       port_( -1 ), xsh_( NULL ), evtchnPort_( 0 ), ringPage_( NULL ), memAccessOn_( false ), evtchnOn_( false ),
-      evtchnBindOn_( false ), handlerFlags_( 0 ), guestStillRunning_( true ), logHelper_( logHelper ),
-      firstReleaseWatch_( true )
+      evtchnBindOn_( false ), handlerFlags_( 0 ), guestStillRunning_( true ), logHelper_( logHelper )
 {
 	initXenStore();
 
@@ -761,12 +760,8 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 
 		if ( vec && watchToken_ == vec[XS_WATCH_TOKEN] ) {
 			/* Our domain is being shut down */
-
-			if ( firstReleaseWatch_ )
-				// Ignore first triggered watch, xs_watch() does that.
-				firstReleaseWatch_ = false;
-			else {
-				guestStillRunning_ = (xs_is_domain_introduced( xsh_, domain_ ) != 0);
+			if ( !xs_is_domain_introduced( xsh_, domain_ ) ) {
+				guestStillRunning_ = false;
 				stop();
 			}
 

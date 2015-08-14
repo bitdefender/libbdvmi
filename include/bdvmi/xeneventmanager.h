@@ -123,7 +123,6 @@ private:
 	unsigned short handlerFlags_;
 	bool guestStillRunning_;
 	LogHelper *logHelper_;
-	bool firstReleaseWatch_;
 };
 
 } // namespace bdvmi
