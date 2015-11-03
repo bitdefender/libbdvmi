@@ -22,12 +22,11 @@
 
 extern "C" {
 #include <xen/xen-compat.h>
-#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040300
-#include <xenstore.h>
-#else
+#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040400
 #error unsupported Xen version
 #endif
 
+#include <xenstore.h>
 #include <xenctrl.h>
 #include <xen/hvm/save.h>
 
@@ -123,6 +122,7 @@ private:
 	unsigned short handlerFlags_;
 	bool guestStillRunning_;
 	LogHelper *logHelper_;
+	bool firstReleaseWatch_;
 };
 
 } // namespace bdvmi

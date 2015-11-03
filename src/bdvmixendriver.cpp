@@ -27,13 +27,12 @@
 
 extern "C" {
 #include <xen/xen-compat.h>
-#if ( __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040300 )
-#include <xenstore.h>
-#else
+#if ( __XEN_LATEST_INTERFACE_VERSION__ < 0x00040400 )
 #error unsupported Xen version
 #endif
+#include <xenstore.h>
 #define private rprivate /* private is a C++ keyword */
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 #include <xen/vm_event.h>
 #else
 #include <xen/mem_event.h>
@@ -41,7 +40,7 @@ extern "C" {
 #undef private
 }
 
-//#define DISABLE_PAGE_CACHE
+// #define DISABLE_PAGE_CACHE
 
 #define MTRR_PHYSMASK_VALID_BIT 11
 #define MTRR_PHYSMASK_SHIFT 12
@@ -165,9 +164,8 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 
 			return false;
 		}
-		else {
+		else
 			hwMtrrInit = true;
-		}
 	}
 
 	uint8_t def_type = hwMtrr.msr_mtrr_def_type & 0xff;
@@ -218,9 +216,8 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 					overlap_mtrr |= 1 << ( phys_base & MTRR_PHYSBASE_TYPE_MASK );
 					overlap_mtrr_pos = phys_base & MTRR_PHYSBASE_TYPE_MASK;
 				}
-				else {
+				else
 					return phys_base & MTRR_PHYSBASE_TYPE_MASK;
-				}
 			}
 		}
 	}
@@ -437,11 +434,29 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const throw()
 	regs.cr8 = 0; // can't get this with Xen / userspace
 	regs.cs_arbytes = hwCpu.cs_arbytes;
 
-#if ( __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040400 )
+	regs.cs_base = hwCpu.cs_base;
+	regs.cs_limit = hwCpu.cs_limit;
+	regs.cs_sel = hwCpu.cs_sel;
+	regs.ss_base = hwCpu.ss_base;
+	regs.ss_limit = hwCpu.ss_limit;
+	regs.ss_sel = hwCpu.ss_sel;
+	regs.ss_arbytes = hwCpu.ss_arbytes;
+	regs.ds_base = hwCpu.ds_base;
+	regs.ds_limit = hwCpu.ds_limit;
+	regs.ds_sel = hwCpu.ds_sel;
+	regs.ds_arbytes = hwCpu.ds_arbytes;
+	regs.es_base = hwCpu.es_base;
+	regs.es_limit = hwCpu.es_limit;
+	regs.es_sel = hwCpu.es_sel;
+	regs.es_arbytes = hwCpu.es_arbytes;
+	regs.fs_limit = hwCpu.fs_limit;
+	regs.fs_sel = hwCpu.fs_sel;
+	regs.fs_arbytes = hwCpu.fs_arbytes;
+	regs.gs_limit = hwCpu.gs_limit;
+	regs.gs_sel = hwCpu.gs_sel;
+	regs.gs_arbytes = hwCpu.gs_arbytes;
+
 	int32_t x86Mode = guestX86Mode( regs );
-#else
-	int32_t x86Mode = hwCpu.guest_x86_mode;
-#endif
 
 	switch ( x86Mode ) {
 		case 2:
@@ -912,8 +927,6 @@ bool XenDriver::requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virt
 	vcpu = vcpu;
 	addressSpace = addressSpace;
 
-#if ( __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040400 )
-
 	uint32_t error_code = ( writeAccess ? PFEC_write_access : 0 );
 
 	// It is assumed that the guest is in user-mode and in the proper
@@ -928,24 +941,6 @@ bool XenDriver::requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virt
 		return false;
 	}
 
-#else
-
-	xen_domctl_set_pagefault_info_t info;
-
-	info.address_space = addressSpace;
-	info.virtual_address = virtualAddress;
-	info.write_access = writeAccess;
-
-	if ( xc_domain_set_pagefault_info( xci_, domain_, &info ) != 0 ) {
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_set_pagefault_info() failed: " ) +
-			                   strerror( errno ) );
-
-		return false;
-	}
-
-#endif
-
 	return true;
 }
 
@@ -955,6 +950,15 @@ bool XenDriver::disableRepOptimizations() throw()
 	if ( xc_domain_set_emulated_reps( xci_, domain_, 0 ) != 0 ) {
 		if ( logHelper_ )
 			logHelper_->error( std::string( "xc_domain_set_emulated_reps() failed: " ) + strerror( errno ) );
+
+		return false;
+	}
+
+	return true;
+#elif __XEN_LATEST_INTERFACE_VERSION__ == 0x00040700
+	if ( xc_monitor_emulate_each_rep( xci_, domain_, 1 ) != 0 ) {
+		if ( logHelper_ )
+			logHelper_->error( std::string( "xc_domain_emulate_each_rep() failed: " ) + strerror( errno ) );
 
 		return false;
 	}
