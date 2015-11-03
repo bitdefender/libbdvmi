@@ -27,17 +27,18 @@
 
 extern "C" {
 #include <xen/xen-compat.h>
+#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040400
+#error unsupported Xen version
+#endif
 }
 
-#if ( __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400 || __XEN_LATEST_INTERFACE_VERSION__ == 0x00040500 )
+#if __XEN_LATEST_INTERFACE_VERSION__ <= 0x00040500
 #define REGS( x ) x.x86_regs
-#elif __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
-#define REGS( x ) x.data.regs.x86
 #else
-#define REGS( x ) x.regs
+#define REGS( x ) x.data.regs.x86
 #endif
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 #define GLA( x ) x.u.mem_access.gla
 #define GLA_VALID( x ) ( x.u.mem_access.flags & MEM_ACCESS_GLA_VALID )
 #define GFN( x ) x.u.mem_access.gfn
@@ -53,7 +54,7 @@ extern "C" {
 #define VMCALL_RAX( x ) x.data.regs.x86.rax
 #define RESPONSE_DATA( x ) x.data.emul_read_data
 
-#define MEM_EVENT_FLAG_SKIP_INSTR MEM_ACCESS_SKIP_INSTR
+#define MEM_EVENT_FLAG_SKIP_INSTR VM_EVENT_FLAG_SET_REGISTERS
 #define MEM_EVENT_FLAG_EMUL_SET_CONTEXT VM_EVENT_FLAG_SET_EMUL_READ_DATA
 #define MEM_EVENT_FLAG_DENY VM_EVENT_FLAG_DENY
 #define MEM_EVENT_REASON_VMCALL VM_EVENT_REASON_GUEST_REQUEST
@@ -89,7 +90,8 @@ namespace bdvmi {
 XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper )
     : driver_( driver ), xci_( driver.nativeHandle() ), domain_( driver.id() ), stop_( false ), xce_( NULL ),
       port_( -1 ), xsh_( NULL ), evtchnPort_( 0 ), ringPage_( NULL ), memAccessOn_( false ), evtchnOn_( false ),
-      evtchnBindOn_( false ), handlerFlags_( 0 ), guestStillRunning_( true ), logHelper_( logHelper )
+      evtchnBindOn_( false ), handlerFlags_( 0 ), guestStillRunning_( true ), logHelper_( logHelper ),
+      firstReleaseWatch_( true )
 {
 	initXenStore();
 
@@ -106,7 +108,7 @@ XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFl
 
 XenEventManager::~XenEventManager()
 {
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 	xc_monitor_guest_request( xci_, domain_, 0, 1 );
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 1 );
 #endif
@@ -134,7 +136,7 @@ void XenEventManager::cleanup()
 		munmap( ringPage_, XC_PAGE_SIZE );
 
 	if ( memAccessOn_ )
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 		xc_monitor_disable( xci_, domain_ );
 #else
 		xc_mem_access_disable( xci_, domain_ );
@@ -150,6 +152,7 @@ void XenEventManager::cleanup()
 
 	if ( xsh_ ) {
 		xs_unwatch( xsh_, "@releaseDomain", watchToken_.c_str() );
+		xs_unwatch( xsh_, watchToken_.c_str(), watchToken_.c_str() );
 		xs_close( xsh_ );
 	}
 }
@@ -159,7 +162,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 	if ( flags & ENABLE_CR ) {
 
 		if ( ( handlerFlags_ & ENABLE_CR ) == 0 ) {
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 1, 1, 1) ) {
 #else
 			if ( xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_CR0,
@@ -169,7 +172,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 				return false;
 			}
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 1, 1, 1) ) {
 #else
 			if ( xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_CR3,
@@ -179,7 +182,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 				return false;
 			}
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 1, 1, 1) ) {
 #else
 			if ( xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_CR4,
@@ -192,7 +195,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 	}
 	else {
 		if ( handlerFlags_ & ENABLE_CR ) {
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600 
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 0, 1, 1);
 			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 0, 1, 1);
 			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 0, 1, 1);
@@ -208,7 +211,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 
 		if ( ( handlerFlags_ & ENABLE_MSR ) == 0 ) {
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 			if ( xc_monitor_mov_to_msr( xci_, domain_, 1, 1 ) ) {
 #else
 			if ( xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_MSR, HVMPME_mode_sync ) ) {
@@ -220,14 +223,14 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 	}
 	else {
 		if ( handlerFlags_ & ENABLE_MSR )
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 			xc_monitor_mov_to_msr( xci_, domain_, 0, 1 );
 #else
 			xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_MSR, HVMPME_mode_disabled );
 #endif
 	}
 
-#if ( __XEN_LATEST_INTERFACE_VERSION__ != 0x00040400 && __XEN_LATEST_INTERFACE_VERSION__ != 0x00040600 )
+#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040500
 	/* Always on in Xen 4.4. */
 	if ( flags & ENABLE_VMCALL ) {
 		if ( ( handlerFlags_ & ENABLE_VMCALL ) == 0 &&
@@ -295,13 +298,9 @@ inline void copyRegisters( Registers &regs, const mem_event_request_t &req )
 	regs.cr3 = REGS( req ).cr3;
 	regs.cr4 = REGS( req ).cr4;
 
-#if ( __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040400 )
 	regs.cs_arbytes = REGS( req ).cs_arbytes;
 
 	int32_t x86Mode = XenDriver::guestX86Mode( regs );
-#else
-	int32_t x86Mode = REGS( req ).guest_x86_mode;
-#endif
 
 	switch ( x86Mode ) {
 		case 2:
@@ -347,8 +346,9 @@ void XenEventManager::waitForEvents()
 			rsp.vcpu_id = req.vcpu_id;
 			rsp.flags = req.flags;
 			rsp.reason = req.reason;
+			REGS( rsp ) = REGS( req );
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 			rsp.version = VM_EVENT_INTERFACE_VERSION;
 			rsp.u.mem_access.flags = req.u.mem_access.flags;
 #else
@@ -370,7 +370,7 @@ void XenEventManager::waitForEvents()
 
 					rsp.flags |= MEM_EVENT_FLAG_EMULATE;
 					GFN( rsp ) = GFN( req );
-#if __XEN_LATEST_INTERFACE_VERSION__ != 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040600
 					rsp.p2mt = req.p2mt;
 #endif
 					if ( h && ( hndlFlags & ENABLE_MEMORY ) ) {
@@ -388,7 +388,7 @@ void XenEventManager::waitForEvents()
 #if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040500
 						if ( req.fault_in_gpt )
 							break;
-#elif __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#elif __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 						if ( req.u.mem_access.flags & MEM_ACCESS_FAULT_IN_GPT )
 							break;
 #endif
@@ -429,7 +429,7 @@ void XenEventManager::waitForEvents()
 					break;
 				}
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 				case VM_EVENT_REASON_WRITE_CTRLREG: {
 #else
 				case MEM_EVENT_REASON_CR0:
@@ -439,7 +439,7 @@ void XenEventManager::waitForEvents()
 					Registers regs;
 					unsigned short crNumber = 3;
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
                     rsp.u.write_ctrlreg.index = req.u.write_ctrlreg.index;
 
 					if ( req.u.write_ctrlreg.index == VM_EVENT_X86_XCR0 ) {
@@ -484,7 +484,7 @@ void XenEventManager::waitForEvents()
 						             CR_NEW_VALUE( req ), action );
 
 						if ( action == SKIP_INSTRUCTION || action == EMULATE_NOWRITE ) {
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 							rsp.flags |= MEM_EVENT_FLAG_DENY;
 #else
 							vcpu_guest_context_any_t ctx;
@@ -538,7 +538,7 @@ void XenEventManager::waitForEvents()
 					break;
 				}
 
-#if __XEN_LATEST_INTERFACE_VERSION__ != 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040600
 				case MEM_EVENT_REASON_XSETBV:
 
 					if ( h && ( hndlFlags & ENABLE_XSETBV ) )
@@ -546,7 +546,6 @@ void XenEventManager::waitForEvents()
 
 					break;
 #endif
-
 				default:
 					// unknown reason code
 					break;
@@ -578,7 +577,8 @@ void XenEventManager::stop()
 void XenEventManager::initXenStore()
 {
 	std::stringstream ss;
-	ss << domain_;
+	ss << "/local/domain/0/device-model/" << domain_;
+
 	watchToken_ = ss.str();
 
 	xsh_ = xs_open( 0 );
@@ -586,7 +586,8 @@ void XenEventManager::initXenStore()
 	if ( !xsh_ )
 		throw Exception( "[Xen events] xs_open() failed" );
 
-	if ( !xs_watch( xsh_, "@releaseDomain", watchToken_.c_str() ) ) {
+	if ( !xs_watch( xsh_, "@releaseDomain", watchToken_.c_str() ) ||
+	     !xs_watch( xsh_, watchToken_.c_str(), watchToken_.c_str() ) ) {
 		xs_close( xsh_ );
 		throw Exception( "[Xen events] xs_watch() failed" );
 	}
@@ -621,13 +622,13 @@ void XenEventManager::initEventChannels()
 #undef private
 }
 
-#if ( __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040500 )
+#if __XEN_LATEST_INTERFACE_VERSION__ > 0x00040400
 
 void XenEventManager::initMemAccess()
 {
 #if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040500
 	ringPage_ = xc_mem_access_enable_introspection( xci_, domain_, &evtchnPort_ );
-#else // 406
+#else // 406 or 407
 	ringPage_ = xc_monitor_enable( xci_, domain_, &evtchnPort_ );
 #endif
 
@@ -644,8 +645,9 @@ void XenEventManager::initMemAccess()
 		}
 	}
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
-	if ( xc_mem_access_enable_emulate( xci_, domain_ ) )
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
+	int rc = xc_mem_access_enable_emulate( xci_, domain_ );
+	if ( rc != -EEXIST && rc )
 		throw Exception( "[Xen events] could not enable mem_access instruction emulation" );
 #endif
 
@@ -655,13 +657,13 @@ void XenEventManager::initMemAccess()
 
 	xc_domain_set_access_required( xci_, domain_, 0 );
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 	xc_monitor_guest_request( xci_, domain_, 1, 1 );
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 1, 1, 1 );
 #endif
 }
 
-#elif( __XEN_LATEST_INTERFACE_VERSION__ == 0x00040300 || __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400 )
+#else
 
 void XenEventManager::initMemAccess()
 {
@@ -689,11 +691,7 @@ void XenEventManager::initMemAccess()
 		}
 	}
 
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400
 	if ( xc_mem_access_enable_introspection( xci_, domain_, &evtchnPort_ ) ) {
-#else
-	if ( xc_mem_access_enable( xci_, domain_, &evtchnPort_ ) ) {
-#endif
 		cleanup();
 
 		switch ( errno ) {
@@ -719,8 +717,6 @@ void XenEventManager::initMemAccess()
 	xc_domain_set_access_required( xci_, domain_, 0 );
 }
 
-#else
-#error unsupported Xen version
 #endif
 
 int XenEventManager::waitForEventOrTimeout( int ms )
@@ -760,10 +756,33 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 
 		if ( vec && watchToken_ == vec[XS_WATCH_TOKEN] ) {
 			/* Our domain is being shut down */
+
+			if ( watchToken_ == vec[XS_WATCH_PATH] ) {
+
+				if ( firstReleaseWatch_ ) {
+					// Ignore first triggered watch, xs_watch() does that.
+					firstReleaseWatch_ = false;
+
+			} else {
+
+				unsigned int len = 0;
+				xs_transaction_t th = xs_transaction_start( xsh_ );
+				void *buf = xs_directory( xsh_, th, vec[XS_WATCH_PATH], &len );
+
+				if ( !buf ) {
+					guestStillRunning_ = (xs_is_domain_introduced( xsh_, domain_ ) != 0);
+					stop();
+				}
+
+				free( buf );
+				xs_transaction_end( xsh_, th, 0 );
+			}
+		} else if ( vec && std::string("@releaseDomain") == vec[XS_WATCH_PATH] ) {
 			if ( !xs_is_domain_introduced( xsh_, domain_ ) ) {
 				guestStillRunning_ = false;
 				stop();
 			}
+		}
 
 			free( vec );
 			return 0;
@@ -832,7 +851,7 @@ void XenEventManager::resumePage( mem_event_response_t *rsp )
 /* Tell Xen page is ready */
 #if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040500
 	xc_mem_access_resume( xci_, domain_ );
-#elif __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#elif __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 // xc_monitor_resume(xci_, domain_);
 #else
 	xc_mem_access_resume( xci_, domain_, rsp->gfn );

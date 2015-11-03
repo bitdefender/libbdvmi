@@ -37,6 +37,29 @@ struct Registers {
 	uint64_t msr_efer;
 	uint64_t msr_star;
 	uint64_t msr_lstar;
+
+	uint64_t cs_base;
+	uint64_t cs_limit;
+	uint64_t cs_sel;
+	uint64_t ss_base;
+	uint64_t ss_limit;
+	uint64_t ss_sel;
+	uint64_t ss_arbytes;
+	uint64_t ds_base;
+	uint64_t ds_limit;
+	uint64_t ds_sel;
+	uint64_t ds_arbytes;
+	uint64_t es_base;
+	uint64_t es_limit;
+	uint64_t es_sel;
+	uint64_t es_arbytes;
+	uint64_t fs_limit;
+	uint64_t fs_sel;
+	uint64_t fs_arbytes;
+	uint64_t gs_limit;
+	uint64_t gs_sel;
+	uint64_t gs_arbytes;
+
 	uint64_t fs_base;
 	uint64_t gs_base;
 	uint64_t idtr_base;

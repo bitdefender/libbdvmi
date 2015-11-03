@@ -112,7 +112,7 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 							logHelper_->error( std::string( "xs_read() error reading " ) +
 							                   ss.str() + ": " + strerror( errno ) );
 
-						if ( name ) { // domain running or new domain w name set (Xen 4.3+)
+						if ( name ) { // domain running or new domain w name set
 
 							ss.str( "" );
 							ss << "/local/domain/" << dominfo.domid << "/console/tty";
