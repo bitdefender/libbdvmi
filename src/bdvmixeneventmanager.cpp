@@ -444,7 +444,7 @@ void XenEventManager::waitForEvents()
 
 					if ( req.u.write_ctrlreg.index == VM_EVENT_X86_XCR0 ) {
 						if ( h && ( hndlFlags & ENABLE_XSETBV ) )
-							h->handleXSETBV( req.vcpu_id, GFN( req ) );
+							h->handleXSETBV( req.vcpu_id, req.u.write_ctrlreg.new_value );
 
 						break;
 					}
