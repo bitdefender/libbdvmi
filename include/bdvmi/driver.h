@@ -178,7 +178,7 @@ public:
 	virtual bool unmapVirtMem( void *hostPtr ) throw() = 0;
 
 	virtual bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
-	                               uint32_t writeAccess ) throw() = 0;
+	                               uint32_t errorCode ) throw() = 0;
 
 	virtual bool disableRepOptimizations() throw() = 0;
 
@@ -189,6 +189,8 @@ public:
 	virtual bool unpause() throw() = 0;
 
 	virtual bool setPageCacheLimit( size_t limit ) throw() = 0;
+
+	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw () = 0;
 
 	virtual std::string uuid() const throw() = 0;
 

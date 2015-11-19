@@ -51,7 +51,7 @@ public:
 	// Callback for VMCALL events.
 	virtual void handleVMCALL( unsigned short vcpu, const Registers &regs, uint64_t rip, uint64_t eax ) = 0;
 
-	virtual void handleXSETBV( unsigned short vcpu, uint64_t ecx ) = 0;
+	virtual void handleXSETBV( unsigned short vcpu, uint64_t xcr0 ) = 0;
 
 	// Notice that the connection to the guest has been terminated (if guestStillRunning is true
 	// then this has _not_ happened because the guest shut down or has been forcefully terminated).

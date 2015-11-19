@@ -765,11 +765,17 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 #ifdef DISABLE_PAGE_CACHE
 		mapped = xc_map_foreign_range( xci_, domain_, XC_PAGE_SIZE, PROT_READ | PROT_WRITE, gfn );
 
-		/*
-		if (!mapped && logHelper_)
-		    logHelper_->error(std::string("xc_map_foreign_range() failed: ")
-		        + strerror(errno));
-		*/
+		/* */
+		if (!mapped && logHelper_) {
+
+		    std::stringstream ss;
+		    ss << "xc_map_foreign_range(0x"
+		        << std::setfill('0') << std::setw(16) << std::hex
+		        << gfn << ") failed: " << strerror(errno);
+
+		    logHelper_->error(ss.str());
+		}
+		/* */
 
 		if ( mapped && !check_page( mapped ) ) {
 			munmap( mapped, XC_PAGE_SIZE );
@@ -918,22 +924,14 @@ bool XenDriver::cacheGuestVirtAddr( unsigned long long address ) throw()
 	return true;
 }
 
-#define PFEC_write_access ( 1U << 1 )
-
-bool XenDriver::requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
-                                  uint32_t writeAccess ) throw()
+bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_t virtualAddress,
+                                  uint32_t errorCode ) throw()
 {
-	// Get rid of unused parameters warnings.
-	vcpu = vcpu;
-	addressSpace = addressSpace;
-
-	uint32_t error_code = ( writeAccess ? PFEC_write_access : 0 );
-
 	// It is assumed that the guest is in user-mode and in the proper
 	// address space for "vcpu" here - otherwise things will likely
 	// explode. If something does explode here, check that those
 	// conditions hold HV-side.
-	if ( xc_hvm_inject_trap( xci_, domain_, vcpu, TRAP_page_fault, X86_EVENTTYPE_HW_EXCEPTION, error_code, 0,
+	if ( xc_hvm_inject_trap( xci_, domain_, vcpu, TRAP_page_fault, X86_EVENTTYPE_HW_EXCEPTION, errorCode, 0,
 	                         virtualAddress /*, addressSpace */ ) != 0 ) {
 		if ( logHelper_ )
 			logHelper_->error( std::string( "xc_hvm_inject_trap() failed: " ) + strerror( errno ) );
@@ -958,7 +956,7 @@ bool XenDriver::disableRepOptimizations() throw()
 #elif __XEN_LATEST_INTERFACE_VERSION__ == 0x00040700
 	if ( xc_monitor_emulate_each_rep( xci_, domain_, 1 ) != 0 ) {
 		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_emulate_each_rep() failed: " ) + strerror( errno ) );
+			logHelper_->error( std::string( "xc_monitor_emulate_each_rep() failed: " ) + strerror( errno ) );
 
 		return false;
 	}
@@ -998,6 +996,102 @@ bool XenDriver::unpause() throw()
 bool XenDriver::setPageCacheLimit( size_t limit ) throw()
 {
 	return pageCache_.setLimit( limit );
+}
+
+bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
+{
+	int ret = xc_domain_pause( xci_, domain_ );
+
+	if ( ret < 0 )
+		return false;
+
+	// Get buffer length (0 argument)
+	ret = xc_domain_hvm_getcontext( xci_, domain_, 0, 0 );
+
+	if ( ret < 0 ) {
+		xc_domain_unpause( xci_, domain_ );
+		return false;
+	}
+
+	uint32_t len = ret;
+	std::vector<uint8_t> buf( len );
+
+	ret = xc_domain_hvm_getcontext( xci_, domain_, &buf[0], len );
+
+	if ( ret < 0 ) {
+		if ( logHelper_ )
+			logHelper_->error( std::string( "xc_domain_hvm_getcontext() failed: " ) +
+			                   strerror( errno ) );
+		xc_domain_unpause( xci_, domain_ );
+		return false;
+	}
+
+	uint32_t off = 0;
+	bool found = false;
+
+	while ( off < len ) {
+		struct hvm_save_descriptor *descriptor = ( struct hvm_save_descriptor * )( &buf[0] + off );
+
+		off += sizeof ( struct hvm_save_descriptor );
+
+		if ( descriptor->typecode == HVM_SAVE_CODE( END ) )
+			break;
+
+		if ( descriptor->typecode == CPU_XSAVE_CODE && descriptor->instance == vcpu ) {
+			struct hvm_hw_cpu_xsave *hwCpuXSAVE = ( struct hvm_hw_cpu_xsave * )( &buf[0] + off );
+			xcr0 = hwCpuXSAVE->xcr0;
+			found = true;
+		}
+
+		off += descriptor->length;
+	}
+
+	xc_domain_unpause( xci_, domain_ );
+
+	return found;
+}
+
+#define XCR0_X87        0x00000001      /* x87 FPU/MMX state */
+#define XCR0_SSE        0x00000002      /* SSE state */
+
+bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size ) throw ()
+{
+	uint64_t featureMask = 0;
+	unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+	uint32_t localSize = 512 + 64;
+
+	if ( ! getXCR0( vcpu, featureMask ) ) {
+		if ( logHelper_ )
+			logHelper_->error( "could not query XCR0, can't get the XSAVE size" );
+
+		return false;
+	}
+
+	size = 0;
+
+	// Get the supported features bit mask.
+	__cpuid_count( 0xD, 0, eax, ebx, ecx, edx );
+
+	// Clear out mandatory bits - XCR0_X87 and XCR0_SSE.
+	// Also, clear out any invalid/unsupported bit.
+	featureMask &= ~( XCR0_X87 | XCR0_SSE ) & ( ( ( uint64_t )edx << 32) | ( uint64_t )eax );
+
+	for ( unsigned int i = 0; i < 64; ++i ) {
+
+		if ( ( featureMask & ( 0x1 << i ) ) == 0 )
+			continue;
+
+		eax = ebx = edx = ecx = 0;
+
+		__cpuid_count( 0xD, i, eax, ebx, ecx, edx );
+
+		if ( ( uint32_t )eax + ( uint32_t )ebx > localSize )
+			localSize = ( uint32_t )eax + ( uint32_t )ebx;
+	}
+
+	size = localSize;
+
+	return true;
 }
 
 unsigned int XenDriver::cpuid_eax( unsigned int op ) const

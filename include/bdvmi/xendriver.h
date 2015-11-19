@@ -91,7 +91,7 @@ public:
 	virtual bool cacheGuestVirtAddr( unsigned long long addr ) throw();
 
 	virtual bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
-	                               uint32_t writeAccess ) throw();
+	                               uint32_t errorCode ) throw();
 
 	virtual bool disableRepOptimizations() throw();
 
@@ -102,6 +102,8 @@ public:
 	virtual bool unpause() throw();
 
 	virtual bool setPageCacheLimit( size_t limit ) throw();
+
+	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw ();
 
 	virtual std::string uuid() const throw()
 	{
@@ -141,6 +143,8 @@ private:
 	bool isVarMtrrOverlapped( const struct hvm_hw_mtrr &hwMtrr ) const;
 
 	void getMtrrRange( uint64_t base_msr, uint64_t mask_msr, uint64_t &base, uint64_t &end ) const;
+
+	bool getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const;
 
 private:
 	xc_interface *xci_;

@@ -124,7 +124,6 @@ MapReturnCode XenPageCache::insertNew( unsigned long gfn, void *&pointer )
 
 	if ( !ci.pointer ) {
 
-		/*
 		if (logHelper_) {
 
 		    std::stringstream ss;
@@ -134,7 +133,6 @@ MapReturnCode XenPageCache::insertNew( unsigned long gfn, void *&pointer )
 
 		    logHelper_->error(ss.str());
 		}
-		*/
 
 		pointer = NULL;
 		return MAP_FAILED_GENERIC;
