@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
+#include <vector>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <cpuid.h>
