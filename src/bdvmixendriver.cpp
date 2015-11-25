@@ -35,6 +35,7 @@ extern "C" {
 #define private rprivate /* private is a C++ keyword */
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 #include <xen/vm_event.h>
+#include <xen/domctl.h>
 #else
 #include <xen/mem_event.h>
 #endif
@@ -76,13 +77,13 @@ static bool check_page( void *addr )
 #endif
 
 XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly )
-    : xsh_( NULL ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper )
+    : xci_( NULL ), xsh_( NULL ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper )
 {
 	init( domain, hvmOnly );
 }
 
 XenDriver::XenDriver( const std::string &domainName, LogHelper *logHelper, bool hvmOnly )
-    : xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper )
+    : xci_( NULL), xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper )
 {
 	domain_ = getDomainId( domainName );
 	init( domain_, hvmOnly );
@@ -729,7 +730,7 @@ domid_t XenDriver::getDomainId( const std::string &domainName )
 
 	if ( size == 0 ) {
 		cleanup();
-		throw Exception( std::string( "Failed to retrieve domain ID by name [" ) + domainName + "]" );
+		throw Exception( std::string( "Failed to retrieve domain ID by name [" ) + domainName + "]: " + strerror( errno ) );
 	}
 
 	for ( unsigned int i = 0; i < size; ++i ) {
@@ -954,7 +955,8 @@ bool XenDriver::disableRepOptimizations() throw()
 	}
 
 	return true;
-#elif __XEN_LATEST_INTERFACE_VERSION__ == 0x00040700
+#else
+#ifdef XEN_DOMCTL_MONITOR_OP_EMULATE_EACH_REP
 	if ( xc_monitor_emulate_each_rep( xci_, domain_, 1 ) != 0 ) {
 		if ( logHelper_ )
 			logHelper_->error( std::string( "xc_monitor_emulate_each_rep() failed: " ) + strerror( errno ) );
@@ -965,6 +967,7 @@ bool XenDriver::disableRepOptimizations() throw()
 	return true;
 #else
 	return false;
+#endif
 #endif
 }
 

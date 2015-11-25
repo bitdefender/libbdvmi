@@ -54,7 +54,6 @@ extern "C" {
 #define VMCALL_RAX( x ) x.data.regs.x86.rax
 #define RESPONSE_DATA( x ) x.data.emul_read_data
 
-#define MEM_EVENT_FLAG_SKIP_INSTR VM_EVENT_FLAG_SET_REGISTERS
 #define MEM_EVENT_FLAG_EMUL_SET_CONTEXT VM_EVENT_FLAG_SET_EMUL_READ_DATA
 #define MEM_EVENT_FLAG_DENY VM_EVENT_FLAG_DENY
 #define MEM_EVENT_REASON_VMCALL VM_EVENT_REASON_GUEST_REQUEST
@@ -400,15 +399,15 @@ void XenEventManager::waitForEvents()
 
 						switch ( action ) {
 							case EMULATE_NOWRITE:
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040600
+#ifndef VM_EVENT_FLAG_SET_REGISTERS
 							case SKIP_INSTRUCTION:
 #endif
 								rsp.flags |= MEM_EVENT_FLAG_EMULATE_NOWRITE;
 								break;
-#if __XEN_LATEST_INTERFACE_VERSION__ != 0x00040600
+#ifdef VM_EVENT_FLAG_SET_REGISTERS
 							case SKIP_INSTRUCTION:
 								REGS( rsp ).rip = REGS( req ).rip + instructionSize;
-								rsp.flags |= MEM_EVENT_FLAG_SKIP_INSTR;
+								rsp.flags |= VM_EVENT_FLAG_SET_REGISTERS;
 								break;
 #endif
 							case ALLOW_VIRTUAL:
