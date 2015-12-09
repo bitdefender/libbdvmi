@@ -81,4 +81,3 @@ private:
 } // namespace bdvmi
 
 #endif // __BDVMIXENCACHE_H_INCLUDED__
-

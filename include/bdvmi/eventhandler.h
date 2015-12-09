@@ -44,9 +44,8 @@ public:
 
 	// Callback for page faults.
 	virtual void handlePageFault( unsigned short vcpu, const Registers &regs, uint64_t physAddress,
-	                              uint64_t virtAddress, bool read, bool write, bool execute,
-	                              HVAction &action, uint8_t *emulatorCtx, uint32_t &emuCtxSize,
-	                              unsigned short &instructionSize ) = 0;
+	                              uint64_t virtAddress, bool read, bool write, bool execute, HVAction &action,
+	                              uint8_t *emulatorCtx, uint32_t &emuCtxSize, unsigned short &instructionSize ) = 0;
 
 	// Callback for VMCALL events.
 	virtual void handleVMCALL( unsigned short vcpu, const Registers &regs, uint64_t rip, uint64_t eax ) = 0;
@@ -64,4 +63,3 @@ public:
 } // namespace bdvmi
 
 #endif // __BDVMIEVENTHANDLER_H_INCLUDED__
-

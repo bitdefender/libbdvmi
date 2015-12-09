@@ -118,7 +118,6 @@ XenEventManager::~XenEventManager()
 		// cleanup events
 		try {
 			waitForEvents();
-
 		} catch ( ... ) {
 			// Exceptions not allowed to escape destructors
 		}
@@ -162,7 +161,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 
 		if ( ( handlerFlags_ & ENABLE_CR ) == 0 ) {
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
-			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 1, 1, 1) ) {
+			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 1, 1, 1 ) ) {
 #else
 			if ( xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_CR0,
 			                       HVMPME_onchangeonly | HVMPME_mode_sync ) ) {
@@ -172,7 +171,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 			}
 
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
-			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 1, 1, 1) ) {
+			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 1, 1, 1 ) ) {
 #else
 			if ( xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_CR3,
 			                       HVMPME_onchangeonly | HVMPME_mode_sync ) ) {
@@ -182,7 +181,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 			}
 
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
-			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 1, 1, 1) ) {
+			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 1, 1, 1 ) ) {
 #else
 			if ( xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_CR4,
 			                       HVMPME_onchangeonly | HVMPME_mode_sync ) ) {
@@ -191,13 +190,12 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 				return false;
 			}
 		}
-	}
-	else {
+	} else {
 		if ( handlerFlags_ & ENABLE_CR ) {
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
-			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 0, 1, 1);
-			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 0, 1, 1);
-			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 0, 1, 1);
+			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 0, 1, 1 );
+			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 0, 1, 1 );
+			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 0, 1, 1 );
 #else
 			xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_CR0, HVMPME_mode_disabled );
 			xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_CR3, HVMPME_mode_disabled );
@@ -219,8 +217,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 				return false;
 			}
 		}
-	}
-	else {
+	} else {
 		if ( handlerFlags_ & ENABLE_MSR )
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 			xc_monitor_mov_to_msr( xci_, domain_, 0, 1 );
@@ -237,8 +234,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 			LOG_ERROR( "[Xen events] could not set up VMCALL event handler" );
 			return false;
 		}
-	}
-	else {
+	} else {
 		if ( handlerFlags_ & ENABLE_VMCALL )
 			xc_set_hvm_param( xci_, domain_, HVM_PARAM_MEMORY_EVENT_VMCALL, HVMPME_mode_disabled );
 	}
@@ -411,7 +407,8 @@ void XenEventManager::waitForEvents()
 								break;
 #endif
 							case ALLOW_VIRTUAL:
-								// go on, but don't emulate (monitoring application changed EIP)
+								// go on, but don't emulate (monitoring application
+								// changed EIP)
 								rsp.flags &= ~MEM_EVENT_FLAG_EMULATE;
 								break;
 
@@ -439,7 +436,7 @@ void XenEventManager::waitForEvents()
 					unsigned short crNumber = 3;
 
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
-                    rsp.u.write_ctrlreg.index = req.u.write_ctrlreg.index;
+					rsp.u.write_ctrlreg.index = req.u.write_ctrlreg.index;
 
 					if ( req.u.write_ctrlreg.index == VM_EVENT_X86_XCR0 ) {
 						if ( h && ( hndlFlags & ENABLE_XSETBV ) )
@@ -532,7 +529,8 @@ void XenEventManager::waitForEvents()
 					copyRegisters( regs, req );
 
 					if ( h && ( hndlFlags & ENABLE_VMCALL ) )
-						h->handleVMCALL( req.vcpu_id, regs, VMCALL_RIP( req ), VMCALL_RAX( req ) );
+						h->handleVMCALL( req.vcpu_id, regs, VMCALL_RIP( req ),
+						                 VMCALL_RAX( req ) );
 
 					break;
 				}
@@ -761,27 +759,26 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 				if ( firstReleaseWatch_ ) {
 					// Ignore first triggered watch, xs_watch() does that.
 					firstReleaseWatch_ = false;
+				} else {
 
-			} else {
+					unsigned int len = 0;
+					xs_transaction_t th = xs_transaction_start( xsh_ );
+					void *buf = xs_directory( xsh_, th, vec[XS_WATCH_PATH], &len );
 
-				unsigned int len = 0;
-				xs_transaction_t th = xs_transaction_start( xsh_ );
-				void *buf = xs_directory( xsh_, th, vec[XS_WATCH_PATH], &len );
+					if ( !buf ) {
+						guestStillRunning_ = ( xs_is_domain_introduced( xsh_, domain_ ) != 0 );
+						stop();
+					}
 
-				if ( !buf ) {
-					guestStillRunning_ = (xs_is_domain_introduced( xsh_, domain_ ) != 0);
+					free( buf );
+					xs_transaction_end( xsh_, th, 0 );
+				}
+			} else if ( vec && std::string( "@releaseDomain" ) == vec[XS_WATCH_PATH] ) {
+				if ( !xs_is_domain_introduced( xsh_, domain_ ) ) {
+					guestStillRunning_ = false;
 					stop();
 				}
-
-				free( buf );
-				xs_transaction_end( xsh_, th, 0 );
 			}
-		} else if ( vec && std::string("@releaseDomain") == vec[XS_WATCH_PATH] ) {
-			if ( !xs_is_domain_introduced( xsh_, domain_ ) ) {
-				guestStillRunning_ = false;
-				stop();
-			}
-		}
 
 			free( vec );
 			return 0;

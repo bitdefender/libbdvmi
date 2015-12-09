@@ -56,4 +56,3 @@ private:
 } // namespace bdvmi
 
 #endif // __BDVMIBACKENDFACTORY_H_INCLUDED__
-

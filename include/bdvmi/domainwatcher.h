@@ -93,4 +93,3 @@ private:
 } // namespace bdvmi
 
 #endif // __BDVMIDOMAINWATCHER_H_INCLUDED__
-

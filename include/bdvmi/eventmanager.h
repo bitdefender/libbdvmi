@@ -87,4 +87,3 @@ private:
 } // namespace bdvmi
 
 #endif // __BDVMIEVENTMANAGER_H_INCLUDED__
-

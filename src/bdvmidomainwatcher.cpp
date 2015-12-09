@@ -55,8 +55,7 @@ void DomainWatcher::waitForDomains()
 
 					if ( handler_ && i->isAlreadyRunning )
 						handler_->handleRunningProtectedDomain( i->name );
-				}
-				else {
+				} else {
 
 					if ( handler_ && !i->isAlreadyRunning )
 						handler_->handleNewUnprotectedDomain( i->name );
@@ -70,4 +69,3 @@ void DomainWatcher::waitForDomains()
 }
 
 } // namespace bdvmi
-

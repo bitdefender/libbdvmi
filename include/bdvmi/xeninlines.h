@@ -52,4 +52,3 @@ inline void *xs_read_timeout( struct xs_handle *h, xs_transaction_t t, const cha
 } // namespace bdvmi
 
 #endif // __BDVMIXENINLINES_H_INCLUDED__
-

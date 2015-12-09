@@ -64,4 +64,3 @@ private:
 } // namespace bdvmi
 
 #endif // __BDVMIXENDOMAINWATCHER_H_INCLUDED__
-

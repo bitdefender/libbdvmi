@@ -45,4 +45,3 @@ public:
 } // namespace bdvmi
 
 #endif // __BDVMIDOMAINHANDLER_H_INCLUDED__
-

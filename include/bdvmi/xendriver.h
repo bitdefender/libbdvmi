@@ -54,11 +54,10 @@ public:
 
 	virtual bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const throw();
 
-	virtual bool setPageProtection( unsigned long long guestAddress, bool read, bool write,
-	                                bool execute ) throw();
+	virtual bool setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute ) throw();
 
-	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write,
-	                                bool &execute ) const throw();
+	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) const
+	        throw();
 
 	virtual bool registers( unsigned short vcpu, Registers &regs ) const throw();
 
@@ -103,7 +102,7 @@ public:
 
 	virtual bool setPageCacheLimit( size_t limit ) throw();
 
-	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw ();
+	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw();
 
 	virtual std::string uuid() const throw()
 	{
@@ -162,4 +161,3 @@ private:
 } // namespace bdvmi
 
 #endif // __BDVMIXENDRIVER_H_INCLUDED__
-

@@ -124,15 +124,16 @@ MapReturnCode XenPageCache::insertNew( unsigned long gfn, void *&pointer )
 
 	if ( !ci.pointer ) {
 
-		if (logHelper_) {
+		/* */
+		if ( logHelper_ ) {
 
-		    std::stringstream ss;
-		    ss << "xc_map_foreign_range(0x"
-		        << std::setfill('0') << std::setw(16) << std::hex
-		        << gfn << ") failed: " << strerror(errno);
+			std::stringstream ss;
+			ss << "xc_map_foreign_range(0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex << gfn
+			   << ") failed: " << strerror( errno );
 
-		    logHelper_->error(ss.str());
+			logHelper_->error( ss.str() );
 		}
+		/* */
 
 		pointer = NULL;
 		return MAP_FAILED_GENERIC;
@@ -209,4 +210,3 @@ unsigned long XenPageCache::generateIndex()
 }
 
 } // namespace bdvmi
-

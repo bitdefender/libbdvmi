@@ -63,8 +63,7 @@ void Exception::initBacktrace()
 		if ( ( demangled = abi::__cxa_demangle( symbol.c_str(), NULL, NULL, &status ) ) ) {
 			backtrace_ += demangled;
 			free( demangled );
-		}
-		else {
+		} else {
 			backtrace_ += symbol;
 		}
 
@@ -79,4 +78,3 @@ void Exception::initBacktrace()
 }
 
 } // namespace bdvmi
-

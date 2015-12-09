@@ -57,4 +57,3 @@ EventManager *BackendFactory::eventManager( Driver &driver, unsigned short flags
 }
 
 } // namespace bdvmi
-

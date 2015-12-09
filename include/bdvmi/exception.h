@@ -62,4 +62,3 @@ private:
 } // namespace bdvmi
 
 #endif // __BDVMIDRIVER_H_INCLUDED__
-

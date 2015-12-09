@@ -132,8 +132,7 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 							if ( console ) {
 								free( console );
 								domain.isAlreadyRunning = true;
-							}
-							else {
+							} else {
 								domain.isAlreadyRunning = false;
 							}
 
@@ -142,8 +141,7 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 
 							domains.push_back( domain );
 							ret = true;
-						}
-						else { // new domain, name not yet set
+						} else { // new domain, name not yet set
 							ss.str( "" );
 							ss << "dom" << dominfo.domid;
 							xs_watch( xsh_, path.c_str(), ss.str().c_str() );
@@ -198,4 +196,3 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 }
 
 } // namespace bdvmi
-

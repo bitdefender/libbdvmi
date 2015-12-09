@@ -35,7 +35,6 @@ extern "C" {
 #define private rprivate /* private is a C++ keyword */
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 #include <xen/vm_event.h>
-#include <xen/domctl.h>
 #else
 #include <xen/mem_event.h>
 #endif
@@ -83,7 +82,7 @@ XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly )
 }
 
 XenDriver::XenDriver( const std::string &domainName, LogHelper *logHelper, bool hvmOnly )
-    : xci_( NULL), xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper )
+    : xci_( NULL ), xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper )
 {
 	domain_ = getDomainId( domainName );
 	init( domain_, hvmOnly );
@@ -165,8 +164,7 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 				                   strerror( errno ) );
 
 			return false;
-		}
-		else
+		} else
 			hwMtrrInit = true;
 	}
 
@@ -187,14 +185,12 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 		if ( addr < 0x80000 ) {
 			seg = ( addr >> 16 );
 			return u8_fixed[seg];
-		}
-		else if ( addr < 0xc0000 ) {
+		} else if ( addr < 0xc0000 ) {
 			seg = ( addr - 0x80000 ) >> 14;
 			index = ( seg >> 3 ) + 1;
 			seg &= 7; /* select 0-7 segments */
 			return u8_fixed[index * 8 + seg];
-		}
-		else {
+		} else {
 			/* 0xC0000 --- 0x100000 */
 			seg = ( addr - 0xc0000 ) >> 12;
 			index = ( seg >> 3 ) + 3;
@@ -217,8 +213,7 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 				if ( overlapped ) {
 					overlap_mtrr |= 1 << ( phys_base & MTRR_PHYSBASE_TYPE_MASK );
 					overlap_mtrr_pos = phys_base & MTRR_PHYSBASE_TYPE_MASK;
-				}
-				else
+				} else
 					return phys_base & MTRR_PHYSBASE_TYPE_MASK;
 			}
 		}
@@ -523,8 +518,7 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 
 		if ( setEip )
 			ctxt.x32.user_regs.eip = regs.rip;
-	}
-	else {
+	} else {
 
 		ctxt.x64.user_regs.rax = regs.rax;
 		ctxt.x64.user_regs.rcx = regs.rcx;
@@ -587,7 +581,6 @@ bool XenDriver::enableMsrExit( unsigned int msr, bool &oldValue ) throw()
 		}
 
 		msrs_.insert( msr );
-
 	} catch ( ... ) {
 		return false;
 	}
@@ -606,7 +599,6 @@ bool XenDriver::disableMsrExit( unsigned int msr, bool &oldValue ) throw()
 			msrs_.erase( it );
 			oldValue = true;
 		}
-
 	} catch ( ... ) {
 		return false;
 	}
@@ -730,7 +722,8 @@ domid_t XenDriver::getDomainId( const std::string &domainName )
 
 	if ( size == 0 ) {
 		cleanup();
-		throw Exception( std::string( "Failed to retrieve domain ID by name [" ) + domainName + "]: " + strerror( errno ) );
+		throw Exception( std::string( "Failed to retrieve domain ID by name [" ) + domainName + "]: " +
+		                 strerror( errno ) );
 	}
 
 	for ( unsigned int i = 0; i < size; ++i ) {
@@ -768,14 +761,13 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 		mapped = xc_map_foreign_range( xci_, domain_, XC_PAGE_SIZE, PROT_READ | PROT_WRITE, gfn );
 
 		/* */
-		if (!mapped && logHelper_) {
+		if ( !mapped && logHelper_ ) {
 
-		    std::stringstream ss;
-		    ss << "xc_map_foreign_range(0x"
-		        << std::setfill('0') << std::setw(16) << std::hex
-		        << gfn << ") failed: " << strerror(errno);
+			std::stringstream ss;
+			ss << "xc_map_foreign_range(0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex << gfn
+			   << ") failed: " << strerror( errno );
 
-		    logHelper_->error(ss.str());
+			logHelper_->error( ss.str() );
 		}
 		/* */
 
@@ -804,7 +796,6 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 		}
 
 		pointer = static_cast<char *>( mapped ) + ( address & ~XC_PAGE_MASK );
-
 	} catch ( ... ) {
 		return MAP_FAILED_GENERIC;
 	}
@@ -841,8 +832,7 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
 
 		if ( ait != addressCache_.end() ) {
 			gfn = ait->second;
-		}
-		else {
+		} else {
 			gfn = xc_translate_foreign_address( xci_, domain_, vcpu, address );
 
 			if ( gfn == 0 ) {
@@ -891,7 +881,6 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
 		}
 
 		pointer = static_cast<char *>( mapped ) + ( address & ~XC_PAGE_MASK );
-
 	} catch ( ... ) {
 		return MAP_FAILED_GENERIC;
 	}
@@ -918,7 +907,6 @@ bool XenDriver::cacheGuestVirtAddr( unsigned long long address ) throw()
 
 	try {
 		addressCache_[address] = gfn;
-
 	} catch ( ... ) {
 		return false;
 	}
@@ -949,7 +937,8 @@ bool XenDriver::disableRepOptimizations() throw()
 #if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400
 	if ( xc_domain_set_emulated_reps( xci_, domain_, 0 ) != 0 ) {
 		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_set_emulated_reps() failed: " ) + strerror( errno ) );
+			logHelper_->error( std::string( "xc_domain_set_emulated_reps() failed: " ) +
+			                   strerror( errno ) );
 
 		return false;
 	}
@@ -959,7 +948,8 @@ bool XenDriver::disableRepOptimizations() throw()
 #ifdef XEN_DOMCTL_MONITOR_OP_EMULATE_EACH_REP
 	if ( xc_monitor_emulate_each_rep( xci_, domain_, 1 ) != 0 ) {
 		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_monitor_emulate_each_rep() failed: " ) + strerror( errno ) );
+			logHelper_->error( std::string( "xc_monitor_emulate_each_rep() failed: " ) +
+			                   strerror( errno ) );
 
 		return false;
 	}
@@ -1024,8 +1014,7 @@ bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
 
 	if ( ret < 0 ) {
 		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_hvm_getcontext() failed: " ) +
-			                   strerror( errno ) );
+			logHelper_->error( std::string( "xc_domain_hvm_getcontext() failed: " ) + strerror( errno ) );
 		xc_domain_unpause( xci_, domain_ );
 		return false;
 	}
@@ -1036,7 +1025,7 @@ bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
 	while ( off < len ) {
 		struct hvm_save_descriptor *descriptor = ( struct hvm_save_descriptor * )( &buf[0] + off );
 
-		off += sizeof ( struct hvm_save_descriptor );
+		off += sizeof( struct hvm_save_descriptor );
 
 		if ( descriptor->typecode == HVM_SAVE_CODE( END ) )
 			break;
@@ -1055,16 +1044,16 @@ bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
 	return found;
 }
 
-#define XCR0_X87        0x00000001      /* x87 FPU/MMX state */
-#define XCR0_SSE        0x00000002      /* SSE state */
+#define XCR0_X87 0x00000001 /* x87 FPU/MMX state */
+#define XCR0_SSE 0x00000002 /* SSE state */
 
-bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size ) throw ()
+bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size ) throw()
 {
 	uint64_t featureMask = 0;
 	unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
 	uint32_t localSize = 512 + 64;
 
-	if ( ! getXCR0( vcpu, featureMask ) ) {
+	if ( !getXCR0( vcpu, featureMask ) ) {
 		if ( logHelper_ )
 			logHelper_->error( "could not query XCR0, can't get the XSAVE size" );
 
@@ -1078,7 +1067,7 @@ bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size ) throw ()
 
 	// Clear out mandatory bits - XCR0_X87 and XCR0_SSE.
 	// Also, clear out any invalid/unsupported bit.
-	featureMask &= ~( XCR0_X87 | XCR0_SSE ) & ( ( ( uint64_t )edx << 32) | ( uint64_t )eax );
+	featureMask &= ~( XCR0_X87 | XCR0_SSE ) & ( ( ( uint64_t )edx << 32 ) | ( uint64_t )eax );
 
 	for ( unsigned int i = 0; i < 64; ++i ) {
 
@@ -1170,4 +1159,3 @@ bool XenDriver::isVarMtrrOverlapped( const struct hvm_hw_mtrr &hwMtrr ) const
 }
 
 } // namespace bdvmi
-

@@ -141,8 +141,8 @@ public:
 	                                bool execute ) throw() = 0;
 
 	// Get guest page protection
-	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write,
-	                                bool &execute ) const throw() = 0;
+	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) const
+	        throw() = 0;
 
 	// Get registers
 	virtual bool registers( unsigned short vcpu, Registers &regs ) const throw() = 0;
@@ -190,7 +190,7 @@ public:
 
 	virtual bool setPageCacheLimit( size_t limit ) throw() = 0;
 
-	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw () = 0;
+	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw() = 0;
 
 	virtual std::string uuid() const throw() = 0;
 
@@ -200,4 +200,3 @@ public:
 } // namespace bdvmi
 
 #endif // __BDVMIDRIVER_H_INCLUDED__
-

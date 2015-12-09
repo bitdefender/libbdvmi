@@ -38,4 +38,3 @@ public:
 } // namespace bdvmi
 
 #endif // __LOGHELPER_H_INCLUDED__
-
