@@ -108,9 +108,11 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 						char *name = static_cast<char *>(
 						        xs_read_timeout( xsh_, XBT_NULL, path.c_str(), NULL, 1 ) );
 
+						/*
 						if ( !name && errno && logHelper_ )
 							logHelper_->error( std::string( "xs_read() error reading " ) +
 							                   ss.str() + ": " + strerror( errno ) );
+						*/
 
 						if ( name ) { // domain running or new domain w name set
 
@@ -124,10 +126,12 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 							void *console = xs_read_timeout( xsh_, XBT_NULL, path.c_str(),
 							                                 NULL, 1 );
 
+							/*
 							if ( !console && errno && logHelper_ )
 								logHelper_->error(
 								        std::string( "xs_read() error reading " ) +
 								        ss.str() + ": " + strerror( errno ) );
+							*/
 
 							if ( console ) {
 								free( console );
@@ -150,8 +154,10 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 				}
 			}
 
-			if ( err == -1 && ( errno == EACCES || errno == EPERM ) )
+			if ( err == -1 && ( errno == EACCES || errno == EPERM ) ) {
+				free( vec );
 				throw Exception( "access denied for xc_domain_getinfo()" );
+			}
 		}
 
 		if ( vec && releaseToken_ == vec[XS_WATCH_TOKEN] ) {

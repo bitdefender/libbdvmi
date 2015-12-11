@@ -135,6 +135,7 @@ void XenEventManager::cleanup()
 
 	if ( memAccessOn_ )
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
+		xc_mem_access_disable_emulate( xci_, domain_ );
 		xc_monitor_disable( xci_, domain_ );
 #else
 		xc_mem_access_disable( xci_, domain_ );
@@ -634,7 +635,9 @@ void XenEventManager::initMemAccess()
 
 		switch ( errno ) {
 			case EBUSY:
-				throw Exception( "[Xen events] xenaccess is (or was) active on this domain" );
+				throw Exception( "[Xen events] the domain is either already connected "
+				                 "with a monitoring application, or such an application crashed after "
+				                 "connecting to it");
 			case ENODEV:
 				throw Exception( "[Xen events] EPT not supported for this guest" );
 			default:
@@ -643,9 +646,7 @@ void XenEventManager::initMemAccess()
 	}
 
 #if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
-	int rc = xc_mem_access_enable_emulate( xci_, domain_ );
-	if ( rc != -EEXIST && rc )
-		throw Exception( "[Xen events] could not enable mem_access instruction emulation" );
+	xc_mem_access_enable_emulate( xci_, domain_ );
 #endif
 
 	memAccessOn_ = true;
@@ -693,7 +694,9 @@ void XenEventManager::initMemAccess()
 
 		switch ( errno ) {
 			case EBUSY:
-				throw Exception( "[Xen events] xenaccess is (or was) active on this domain" );
+				throw Exception( "[Xen events] the domain is either already connected "
+				                 "with a monitoring application, or such an application crashed after "
+				                 "connecting to it");
 			case ENODEV:
 				throw Exception( "[Xen events] EPT not supported for this guest" );
 			default:
