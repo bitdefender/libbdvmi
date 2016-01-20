@@ -110,8 +110,8 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 
 						/*
 						if ( !name && errno && logHelper_ )
-							logHelper_->error( std::string( "xs_read() error reading " ) +
-							                   ss.str() + ": " + strerror( errno ) );
+						        logHelper_->error( std::string( "xs_read() error reading " ) +
+						                           ss.str() + ": " + strerror( errno ) );
 						*/
 
 						if ( name ) { // domain running or new domain w name set
@@ -128,9 +128,9 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 
 							/*
 							if ( !console && errno && logHelper_ )
-								logHelper_->error(
-								        std::string( "xs_read() error reading " ) +
-								        ss.str() + ": " + strerror( errno ) );
+							        logHelper_->error(
+							                std::string( "xs_read() error reading " ) +
+							                ss.str() + ": " + strerror( errno ) );
 							*/
 
 							if ( console ) {

@@ -28,16 +28,12 @@
 
 extern "C" {
 #include <xen/xen-compat.h>
-#if ( __XEN_LATEST_INTERFACE_VERSION__ < 0x00040400 )
+#if ( __XEN_LATEST_INTERFACE_VERSION__ < 0x00040600 )
 #error unsupported Xen version
 #endif
 #include <xenstore.h>
 #define private rprivate /* private is a C++ keyword */
-#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040600
 #include <xen/vm_event.h>
-#else
-#include <xen/mem_event.h>
-#endif
 #undef private
 }
 
@@ -246,73 +242,34 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 	return true;
 }
 
-namespace {
-
-#if ( __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040500 )
-
-typedef xenmem_access_t access_t;
-
-const access_t access_n = XENMEM_access_n;
-const access_t access_r = XENMEM_access_r;
-const access_t access_w = XENMEM_access_w;
-const access_t access_x = XENMEM_access_x;
-const access_t access_rw = XENMEM_access_rw;
-const access_t access_rx = XENMEM_access_rx;
-const access_t access_wx = XENMEM_access_wx;
-const access_t access_rwx = XENMEM_access_rwx;
-const access_t access_rx2rw = XENMEM_access_rx2rw;
-
-#define set_mem_access xc_set_mem_access
-#define get_mem_access xc_get_mem_access
-
-#else
-
-typedef hvmmem_access_t access_t;
-
-const access_t access_n = HVMMEM_access_n;
-const access_t access_r = HVMMEM_access_r;
-const access_t access_w = HVMMEM_access_w;
-const access_t access_x = HVMMEM_access_x;
-const access_t access_rw = HVMMEM_access_rw;
-const access_t access_rx = HVMMEM_access_rx;
-const access_t access_wx = HVMMEM_access_wx;
-const access_t access_rwx = HVMMEM_access_rwx;
-const access_t access_rx2rw = HVMMEM_access_rx2rw;
-
-#define set_mem_access xc_hvm_set_mem_access
-#define get_mem_access xc_hvm_get_mem_access
-
-#endif
-}
-
 bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute ) throw()
 {
-	access_t memaccess = access_n;
+	xenmem_access_t memaccess = XENMEM_access_n;
 
 	if ( read && !write && !execute )
-		memaccess = access_r;
+		memaccess = XENMEM_access_r;
 
 	else if ( !read && write && !execute )
-		memaccess = access_w;
+		memaccess = XENMEM_access_w;
 
 	else if ( !read && !write && execute )
-		memaccess = access_x;
+		memaccess = XENMEM_access_x;
 
 	else if ( read && write && !execute )
-		memaccess = access_rw;
+		memaccess = XENMEM_access_rw;
 
 	else if ( read && !write && execute )
-		memaccess = access_rx;
+		memaccess = XENMEM_access_rx;
 
 	else if ( !read && write && execute )
-		memaccess = access_wx;
+		memaccess = XENMEM_access_wx;
 
 	else if ( read && write && execute )
-		memaccess = access_rwx;
+		memaccess = XENMEM_access_rwx;
 
 	unsigned long gfn = paddr_to_pfn( guestAddress );
 
-	if ( set_mem_access( xci_, domain_, memaccess, gfn, 1 ) ) {
+	if ( xc_set_mem_access( xci_, domain_, memaccess, gfn, 1 ) ) {
 
 		if ( logHelper_ )
 			logHelper_->error( std::string( "xc_hvm_set_mem_access() failed: " ) + strerror( errno ) );
@@ -326,10 +283,10 @@ bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, b
 bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) const
         throw()
 {
-	access_t memaccess;
+	xenmem_access_t memaccess;
 	unsigned long gfn = paddr_to_pfn( guestAddress );
 
-	if ( get_mem_access( xci_, domain_, gfn, &memaccess ) ) {
+	if ( xc_get_mem_access( xci_, domain_, gfn, &memaccess ) ) {
 
 		if ( logHelper_ )
 			logHelper_->error( std::string( "xc_hvm_get_mem_access() failed: " ) + strerror( errno ) );
@@ -340,39 +297,39 @@ bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, 
 	read = write = execute = false;
 
 	switch ( memaccess ) {
-		case access_r:
+		case XENMEM_access_r:
 			read = true;
 			break;
 
-		case access_w:
+		case XENMEM_access_w:
 			write = true;
 			break;
 
-		case access_rw:
+		case XENMEM_access_rw:
 			read = write = true;
 			break;
 
-		case access_x:
+		case XENMEM_access_x:
 			execute = true;
 			break;
 
-		case access_rx:
+		case XENMEM_access_rx:
 			read = execute = true;
 			break;
 
-		case access_wx:
+		case XENMEM_access_wx:
 			write = execute = true;
 			break;
 
-		case access_rwx:
+		case XENMEM_access_rwx:
 			read = write = execute = true;
 			break;
 
-		case access_rx2rw:             /* Page starts off as r-x, but automatically */
+		case XENMEM_access_rx2rw:      /* Page starts off as r-x, but automatically */
 			read = execute = true; /* change to r-w on a write. */
 			break;
 
-		case access_n:
+		case XENMEM_access_n:
 		default:
 			break;
 	}
@@ -760,16 +717,16 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 #ifdef DISABLE_PAGE_CACHE
 		mapped = xc_map_foreign_range( xci_, domain_, XC_PAGE_SIZE, PROT_READ | PROT_WRITE, gfn );
 
-		/* */
+		/*
 		if ( !mapped && logHelper_ ) {
 
-			std::stringstream ss;
-			ss << "xc_map_foreign_range(0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex << gfn
-			   << ") failed: " << strerror( errno );
+		        std::stringstream ss;
+		        ss << "xc_map_foreign_range(0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex << gfn
+		           << ") failed: " << strerror( errno );
 
-			logHelper_->error( ss.str() );
+		        logHelper_->error( ss.str() );
 		}
-		/* */
+		*/
 
 		if ( mapped && !check_page( mapped ) ) {
 			munmap( mapped, XC_PAGE_SIZE );
@@ -934,17 +891,6 @@ bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_
 
 bool XenDriver::disableRepOptimizations() throw()
 {
-#if __XEN_LATEST_INTERFACE_VERSION__ == 0x00040400
-	if ( xc_domain_set_emulated_reps( xci_, domain_, 0 ) != 0 ) {
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_set_emulated_reps() failed: " ) +
-			                   strerror( errno ) );
-
-		return false;
-	}
-
-	return true;
-#else
 #ifdef XEN_DOMCTL_MONITOR_OP_EMULATE_EACH_REP
 	if ( xc_monitor_emulate_each_rep( xci_, domain_, 1 ) != 0 ) {
 		if ( logHelper_ )
@@ -957,7 +903,6 @@ bool XenDriver::disableRepOptimizations() throw()
 	return true;
 #else
 	return false;
-#endif
 #endif
 }
 

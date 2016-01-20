@@ -23,7 +23,7 @@
 extern "C" {
 #include <xenctrl.h>
 #include <xen/xen-compat.h>
-#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040400
+#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040600
 #error unsupported Xen version
 #endif
 
