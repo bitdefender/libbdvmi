@@ -156,13 +156,13 @@ public:
 	// A new domain appeared
 	virtual void handleRunningUnprotectedDomain( const string &domain )
 	{
-		cout << "Found already running domain, previously set as protected: " << domain << endl;
+		cout << "Found already running domain, previously not set as protected: " << domain << endl;
 	}
 
 	// A new domain appeared
 	virtual void handleRunningProtectedDomain( const string &domain )
 	{
-		cout << "Found already running domain, won't protect it: " << domain << endl;
+		cout << "Found already running domain, will protect it: " << domain << endl;
 	}
 
 private:
@@ -179,6 +179,7 @@ int main()
 
 		DemoLogHelper logHelper;
 		bdvmi::BackendFactory bf( bdvmi::BackendFactory::BACKEND_XEN, &logHelper );
+		DemoDomainHandler ddh( bf );
 
 		// Unique_ptr<T> would have been better, but the user's compiler might not
 		// support C++0x.
@@ -191,7 +192,6 @@ int main()
 
 		cout << "Registering handler ... " << endl;
 
-		DemoDomainHandler ddh( bf );
 		pdw->handler( &ddh );
 
 		cout << "Setting up break-out-of-the-loop (stop) variable ..." << endl;
