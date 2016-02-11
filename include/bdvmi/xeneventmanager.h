@@ -45,7 +45,8 @@ class LogHelper;
 class XenEventManager : public EventManager {
 
 public:
-	XenEventManager( const XenDriver &driver, unsigned short handlerFlags, LogHelper *logHelper );
+	XenEventManager( const XenDriver &driver, unsigned short handlerFlags, LogHelper *logHelper,
+	                 bool useAltP2m = false );
 
 	virtual ~XenEventManager();
 
@@ -69,6 +70,8 @@ private:
 	void initEventChannels();
 
 	void initMemAccess();
+
+	void initAltP2m();
 
 	int waitForEventOrTimeout( int ms );
 
@@ -101,6 +104,7 @@ private:
 	vm_event_back_ring_t backRing_;
 	void *ringPage_;
 	std::string watchToken_;
+	std::string xenServerWatchPath_;
 	bool memAccessOn_;
 	bool evtchnOn_;
 	bool evtchnBindOn_;
@@ -108,6 +112,8 @@ private:
 	bool guestStillRunning_;
 	LogHelper *logHelper_;
 	bool firstReleaseWatch_;
+	bool firstXenServerWatch_;
+	bool useAltP2m_;
 };
 
 } // namespace bdvmi

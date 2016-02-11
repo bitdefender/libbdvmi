@@ -29,17 +29,11 @@ public:
 	}
 
 public:
-	// A new domain appeared (that we want to protect)
-	virtual void handleNewProtectedDomain( const std::string &domain ) = 0;
-
 	// A new domain appeared
-	virtual void handleNewUnprotectedDomain( const std::string &domain ) = 0;
+	virtual void handleNewDomain( const std::string &domain ) = 0;
 
-	// Handle an already running protected domain
-	virtual void handleRunningProtectedDomain( const std::string &domain ) = 0;
-
-	// Handle an already running unprotected domain
-	virtual void handleRunningUnprotectedDomain( const std::string &domain ) = 0;
+	// Handle an already running domain
+	virtual void handleRunningDomain( const std::string &domain ) = 0;
 };
 
 } // namespace bdvmi

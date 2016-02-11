@@ -40,10 +40,11 @@ class XenDriver : public Driver {
 
 public:
 	// Create a XenDriver object with the domain name
-	XenDriver( const std::string &domainName, LogHelper *logHelper = NULL, bool hvmOnly = true );
+	XenDriver( const std::string &domainName, LogHelper *logHelper = NULL, bool hvmOnly = true,
+	           bool useAltP2m = false );
 
 	// Create a XenDriver object with the domain ID (# xm list)
-	XenDriver( domid_t domain, LogHelper *logHelper = NULL, bool hvmOnly = true );
+	XenDriver( domid_t domain, LogHelper *logHelper = NULL, bool hvmOnly = true, bool useAltP2m = false );
 
 	virtual ~XenDriver();
 
@@ -120,6 +121,11 @@ public: // Xen specific-stuff
 		return xci_;
 	}
 
+	uint16_t altp2mViewId() const
+	{
+		return altp2mViewId_;
+	}
+
 public:
 	static int32_t guestX86Mode( const Registers &regs );
 
@@ -156,6 +162,8 @@ private:
 	int guestWidth_;
 	LogHelper *logHelper_;
 	std::string uuid_;
+	bool useAltP2m_;
+	uint16_t altp2mViewId_;
 };
 
 } // namespace bdvmi

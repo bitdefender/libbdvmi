@@ -24,6 +24,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <sstream>
+#include <xen/memory.h>
 
 extern "C" {
 #include <xen/xen-compat.h>
@@ -43,17 +44,25 @@ extern "C" {
 			logHelper_->error( x );                                                                        \
 	}
 
+#define LOG_DEBUG( x )                                                                                                 \
+	{                                                                                                              \
+		if ( logHelper_ )                                                                                      \
+			logHelper_->debug( x );                                                                        \
+	}
+
 namespace bdvmi {
 
-XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper )
+XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper,
+                                  bool useAltP2m )
     : driver_( driver ), xci_( driver.nativeHandle() ), domain_( driver.id() ), stop_( false ), xce_( NULL ),
       port_( -1 ), xsh_( NULL ), evtchnPort_( 0 ), ringPage_( NULL ), memAccessOn_( false ), evtchnOn_( false ),
       evtchnBindOn_( false ), handlerFlags_( 0 ), guestStillRunning_( true ), logHelper_( logHelper ),
-      firstReleaseWatch_( true )
+      firstReleaseWatch_( true ), firstXenServerWatch_( true ), useAltP2m_( useAltP2m )
 {
 	initXenStore();
 
 #ifndef DISABLE_MEM_EVENT
+	initAltP2m();
 	initMemAccess();
 
 	if ( !handlerFlags( hndlFlags ) ) {
@@ -69,15 +78,16 @@ XenEventManager::~XenEventManager()
 	xc_monitor_guest_request( xci_, domain_, 0, 1 );
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 1 );
 
-	if ( !stop_ ) {
+	handler(NULL);
+
+	if ( !stop_ )
 		stop();
 
-		// cleanup events
-		try {
-			waitForEvents();
-		} catch ( ... ) {
-			// Exceptions not allowed to escape destructors
-		}
+	// cleanup events
+	try {
+		waitForEvents();
+	} catch ( ... ) {
+		// Exceptions not allowed to escape destructors
 	}
 
 	cleanup();
@@ -86,6 +96,14 @@ XenEventManager::~XenEventManager()
 void XenEventManager::cleanup()
 {
 #ifndef DISABLE_MEM_EVENT
+	if ( useAltP2m_ ) {
+		unsigned int cpus = 0;
+		driver_.cpuCount( cpus );
+
+		for ( unsigned int vcpu = 0; vcpu < cpus; ++vcpu )
+			xc_domain_debug_control( xci_, domain_, vcpu, XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_OFF );
+	}
+
 	/* Tear down domain xenaccess in Xen */
 	if ( ringPage_ )
 		munmap( ringPage_, XC_PAGE_SIZE );
@@ -106,6 +124,7 @@ void XenEventManager::cleanup()
 	if ( xsh_ ) {
 		xs_unwatch( xsh_, "@releaseDomain", watchToken_.c_str() );
 		xs_unwatch( xsh_, watchToken_.c_str(), watchToken_.c_str() );
+		xs_unwatch( xsh_, xenServerWatchPath_.c_str(), watchToken_.c_str() );
 		xs_close( xsh_ );
 	}
 }
@@ -310,7 +329,8 @@ void XenEventManager::waitForEvents()
 								break;
 #endif
 							case ALLOW_VIRTUAL:
-								// go on, but don't emulate (monitoring application
+								// go on, but don't emulate (monitoring
+								// application
 								// changed EIP)
 								rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
 								break;
@@ -321,12 +341,32 @@ void XenEventManager::waitForEvents()
 
 							case NONE:
 							default:
+								if ( useAltP2m_ &&
+								     req.flags & VM_EVENT_FLAG_ALTERNATE_P2M ) {
+									rsp.flags = req.flags;
+									rsp.altp2m_idx = 0;
+									xc_domain_debug_control(
+									        xci_, domain_,
+									        XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_ON,
+									        req.vcpu_id );
+								}
 								break;
 						}
 					}
 
 					break;
 				}
+
+				case VM_EVENT_REASON_SINGLESTEP:
+					if ( useAltP2m_ ) {
+						rsp.reason = req.reason;
+						rsp.flags |= VM_EVENT_FLAG_ALTERNATE_P2M;
+						rsp.altp2m_idx = driver_.altp2mViewId();
+					}
+
+					xc_domain_debug_control( xci_, domain_, XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_OFF,
+					                         req.vcpu_id );
+					break;
 
 				case VM_EVENT_REASON_WRITE_CTRLREG: {
 					Registers regs;
@@ -436,13 +476,16 @@ void XenEventManager::initXenStore()
 
 	watchToken_ = ss.str();
 
+	xenServerWatchPath_ = std::string( "/vm/" ) + driver_.uuid() + "/uninit-introspection";
+
 	xsh_ = xs_open( 0 );
 
 	if ( !xsh_ )
 		throw Exception( "[Xen events] xs_open() failed" );
 
 	if ( !xs_watch( xsh_, "@releaseDomain", watchToken_.c_str() ) ||
-	     !xs_watch( xsh_, watchToken_.c_str(), watchToken_.c_str() ) ) {
+	     !xs_watch( xsh_, watchToken_.c_str(), watchToken_.c_str() ) ||
+	     !xs_watch( xsh_, xenServerWatchPath_.c_str(), watchToken_.c_str() ) ) {
 		xs_close( xsh_ );
 		throw Exception( "[Xen events] xs_watch() failed" );
 	}
@@ -508,6 +551,17 @@ void XenEventManager::initMemAccess()
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 1, 1, 1 );
 }
 
+void XenEventManager::initAltP2m()
+{
+	if ( !useAltP2m_ )
+		return;
+
+	if ( xc_monitor_singlestep( xci_, domain_, 1 ) < 0 ) {
+		cleanup();
+		throw Exception( "[ALTP2M] could not enable singlestep monitoring" );
+	}
+}
+
 int XenEventManager::waitForEventOrTimeout( int ms )
 {
 #ifndef DISABLE_MEM_EVENT
@@ -538,7 +592,7 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 		throw Exception( "[Xen events] poll() failed" );
 	}
 
-	if ( fd[0].revents & POLLIN ) { // a @releaseDomain event
+	if ( fd[0].revents & POLLIN ) { // a XenStore event
 
 		unsigned int num;
 		char **vec = xs_read_watch( xsh_, &num );
@@ -564,6 +618,18 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 
 					free( buf );
 					xs_transaction_end( xsh_, th, 0 );
+				}
+			} else if ( vec && xenServerWatchPath_ == vec[XS_WATCH_PATH] ) {
+
+				if ( firstXenServerWatch_ ) {
+					// Ignore first triggered watch, xs_watch() does that.
+					firstXenServerWatch_ = false;
+				} else {
+					if ( logHelper_ )
+						logHelper_->info( xenServerWatchPath_ + " has been written" );
+
+					guestStillRunning_ = true;
+					stop();
 				}
 			} else if ( vec && std::string( "@releaseDomain" ) == vec[XS_WATCH_PATH] ) {
 				if ( !xs_is_domain_introduced( xsh_, domain_ ) ) {

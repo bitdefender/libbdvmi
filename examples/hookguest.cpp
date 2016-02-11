@@ -128,17 +128,24 @@ public:
 	}
 
 public:
-	// A new domain appeared (that we want to protect)
-	virtual void handleNewProtectedDomain( const string &domain )
+	// A new domain appeared (it has just been started)
+	virtual void handleNewDomain( const string &domain )
 	{
-		cout << "A new domain started running, previously set as protected: " << domain << endl;
+		cout << "A new domain started running: " << domain << endl;
+		hookDomain( domain );
+
 	}
 
-	// A new domain appeared
-	virtual void handleNewUnprotectedDomain( const string &domain )
+	// Found an already running domain
+	virtual void handleRunningDomain( const string &domain )
 	{
-		cout << "A new domain started running, won't protect it: " << domain << endl;
+		cout << "Found already running domain: " << domain << endl;
+		// Already running domains won't be hooked in this example.
+	}
 
+private:
+	void hookDomain( const string &domain )
+	{
 		auto_ptr<bdvmi::Driver> pd( bf_.driver( domain ) );
 		auto_ptr<bdvmi::EventManager> em( bf_.eventManager( *pd, bdvmi::EventManager::ENABLE_MSR |
 		                                                         bdvmi::EventManager::ENABLE_XSETBV |
@@ -151,18 +158,6 @@ public:
 		em->handler( &deh );
 
 		em->waitForEvents();
-	}
-
-	// A new domain appeared
-	virtual void handleRunningUnprotectedDomain( const string &domain )
-	{
-		cout << "Found already running domain, previously not set as protected: " << domain << endl;
-	}
-
-	// A new domain appeared
-	virtual void handleRunningProtectedDomain( const string &domain )
-	{
-		cout << "Found already running domain, will protect it: " << domain << endl;
 	}
 
 private:
@@ -184,11 +179,6 @@ int main()
 		// Unique_ptr<T> would have been better, but the user's compiler might not
 		// support C++0x.
 		auto_ptr<bdvmi::DomainWatcher> pdw( bf.domainWatcher() );
-
-		cout << "Registering protected domains: windows7, slackware ..." << endl;
-
-		pdw->protectDomain( "windows7" );
-		pdw->protectDomain( "slackware" );
 
 		cout << "Registering handler ... " << endl;
 

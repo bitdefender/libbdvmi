@@ -52,18 +52,6 @@ public:
 		handler_ = h;
 	}
 
-	void protectDomain( const std::string &domain )
-	{
-		domains_.insert( domain );
-	}
-
-	void unprotectDomain( const std::string &domain );
-
-	bool protectedDomain( const std::string &domain ) const
-	{
-		return domains_.find( domain ) != domains_.end();
-	}
-
 	void stop()
 	{
 		stop_ = true;
@@ -85,7 +73,6 @@ protected:
 	sig_atomic_t *sigStop_;
 
 private:
-	std::set<std::string> domains_;
 	bool stop_;
 	DomainHandler *handler_;
 };

@@ -71,14 +71,16 @@ static bool check_page( void *addr )
 }
 #endif
 
-XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly )
-    : xci_( NULL ), xsh_( NULL ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper )
+XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
+    : xci_( NULL ), xsh_( NULL ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
+      useAltP2m_( useAltP2m ), altp2mViewId_( 0 )
 {
 	init( domain, hvmOnly );
 }
 
-XenDriver::XenDriver( const std::string &domainName, LogHelper *logHelper, bool hvmOnly )
-    : xci_( NULL ), xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper )
+XenDriver::XenDriver( const std::string &domainName, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
+    : xci_( NULL ), xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
+      useAltP2m_( useAltP2m ), altp2mViewId_( 0 )
 {
 	domain_ = getDomainId( domainName );
 	init( domain_, hvmOnly );
@@ -269,10 +271,17 @@ bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, b
 
 	unsigned long gfn = paddr_to_pfn( guestAddress );
 
-	if ( xc_set_mem_access( xci_, domain_, memaccess, gfn, 1 ) ) {
+	int rc = 0;
+
+	if ( useAltP2m_ )
+		rc = xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, memaccess );
+	else
+		rc = xc_set_mem_access( xci_, domain_, memaccess, gfn, 1 );
+
+	if ( rc ) {
 
 		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_hvm_set_mem_access() failed: " ) + strerror( errno ) );
+			logHelper_->error( std::string( "xc_set_mem_access() failed: " ) + strerror( errno ) );
 
 		return false;
 	}
@@ -289,7 +298,7 @@ bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, 
 	if ( xc_get_mem_access( xci_, domain_, gfn, &memaccess ) ) {
 
 		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_hvm_get_mem_access() failed: " ) + strerror( errno ) );
+			logHelper_->error( std::string( "xc_get_mem_access() failed: " ) + strerror( errno ) );
 
 		return false;
 	}
@@ -646,10 +655,44 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 	}
 
 	free( path );
+
+	if ( useAltP2m_ ) {
+		if ( xc_altp2m_set_domain_state( xci_, domain_, 1 ) < 0 ) {
+			cleanup();
+			throw Exception( std::string( "[ALTP2M] could not enable altp2m on domain: " ) +
+			                 strerror( errno ) );
+		}
+
+		if ( xc_altp2m_create_view( xci_, domain_, XENMEM_access_rwx, &altp2mViewId_ ) < 0 ) {
+			cleanup();
+			throw Exception( "[ALTP2M] could not create altp2m view" );
+		}
+
+		xen_pfn_t max_gpfn = 0;
+
+		xc_domain_maximum_gpfn( xci_, domain_, &max_gpfn );
+
+		for ( xen_pfn_t gfn = 0; gfn < max_gpfn; ++gfn )
+			xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, XENMEM_access_rwx );
+
+		if ( xc_altp2m_switch_to_view( xci_, domain_, altp2mViewId_ ) < 0 ) {
+			cleanup();
+			throw Exception( "[ALTP2M] could not switch to altp2m view" );
+		}
+	}
 }
 
 void XenDriver::cleanup()
 {
+	if ( useAltP2m_ ) {
+		if ( altp2mViewId_ ) {
+			xc_altp2m_switch_to_view( xci_, domain_, 0 );
+			xc_altp2m_destroy_view( xci_, domain_, altp2mViewId_ );
+		}
+
+		xc_altp2m_set_domain_state( xci_, domain_, 0 );
+	}
+
 	if ( xci_ ) {
 		xc_interface_close( xci_ );
 		xci_ = NULL;

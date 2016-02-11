@@ -22,14 +22,6 @@ DomainWatcher::DomainWatcher() : sigStop_( NULL ), stop_( false ), handler_( NUL
 {
 }
 
-void DomainWatcher::unprotectDomain( const std::string &domain )
-{
-	std::set<std::string>::iterator it = domains_.find( domain );
-
-	if ( it != domains_.end() )
-		domains_.erase( it );
-}
-
 void DomainWatcher::waitForDomains()
 {
 	for ( ;; ) {
@@ -47,22 +39,11 @@ void DomainWatcher::waitForDomains()
 			std::list<DomainInfo>::const_iterator i = domains.begin();
 
 			for ( ; i != domains.end(); ++i ) {
+				if ( handler_ && !i->isAlreadyRunning )
+					handler_->handleNewDomain( i->name );
 
-				if ( protectedDomain( i->name ) ) {
-
-					if ( handler_ && !i->isAlreadyRunning )
-						handler_->handleNewProtectedDomain( i->name );
-
-					if ( handler_ && i->isAlreadyRunning )
-						handler_->handleRunningProtectedDomain( i->name );
-				} else {
-
-					if ( handler_ && !i->isAlreadyRunning )
-						handler_->handleNewUnprotectedDomain( i->name );
-
-					if ( handler_ && i->isAlreadyRunning )
-						handler_->handleRunningUnprotectedDomain( i->name );
-				}
+				if ( handler_ && i->isAlreadyRunning )
+					handler_->handleRunningDomain( i->name );
 			}
 		}
 	}
