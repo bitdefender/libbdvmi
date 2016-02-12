@@ -78,7 +78,7 @@ XenEventManager::~XenEventManager()
 	xc_monitor_guest_request( xci_, domain_, 0, 1 );
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 1 );
 
-	handler(NULL);
+	handler( NULL );
 
 	if ( !stop_ )
 		stop();
