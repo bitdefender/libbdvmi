@@ -17,13 +17,14 @@
 #include "bdvmi/xendriver.h"
 #include "bdvmi/xendomainwatcher.h"
 #include "bdvmi/xeneventmanager.h"
+#include <stdexcept>
 
 namespace bdvmi {
 
 BackendFactory::BackendFactory( BackendType type, LogHelper *logHelper ) : type_( type ), logHelper_( logHelper )
 {
 	if ( type_ != BACKEND_XEN )
-		throw Exception( "Xen is the only supported backend for now" );
+		throw std::runtime_error( "Xen is the only supported backend for now" );
 }
 
 DomainWatcher *BackendFactory::domainWatcher()
@@ -32,7 +33,7 @@ DomainWatcher *BackendFactory::domainWatcher()
 		case BACKEND_XEN:
 			return new XenDomainWatcher( logHelper_ );
 		default:
-			throw Exception( "Xen is the only supported backend for now" );
+			throw std::runtime_error( "Xen is the only supported backend for now" );
 	}
 }
 
@@ -42,7 +43,7 @@ Driver *BackendFactory::driver( const std::string &domain, bool watchableOnly )
 		case BACKEND_XEN:
 			return new XenDriver( domain, logHelper_, watchableOnly );
 		default:
-			throw Exception( "Xen is the only supported backend for now" );
+			throw std::runtime_error( "Xen is the only supported backend for now" );
 	}
 }
 
@@ -52,7 +53,7 @@ EventManager *BackendFactory::eventManager( Driver &driver, unsigned short flags
 		case BACKEND_XEN:
 			return new XenEventManager( dynamic_cast<XenDriver &>( driver ), flags, logHelper_ );
 		default:
-			throw Exception( "Xen is the only supported backend for now" );
+			throw std::runtime_error( "Xen is the only supported backend for now" );
 	}
 }
 

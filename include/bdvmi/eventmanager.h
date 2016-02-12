@@ -17,6 +17,7 @@
 #define __BDVMIEVENTMANAGER_H_INCLUDED__
 
 #include <signal.h>
+#include <string>
 
 namespace bdvmi {
 

@@ -23,7 +23,6 @@
 #include <map>
 
 #include "driver.h"
-#include "exception.h"
 #include "xencache.h"
 
 extern "C" {

@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <cstring>
+#include <stdexcept>
 
 namespace bdvmi {
 
@@ -30,17 +31,17 @@ XenDomainWatcher::XenDomainWatcher( LogHelper *logHelper )
 	xsh_ = xs_open( 0 );
 
 	if ( !xsh_ )
-		throw Exception( "xs_open() failed" );
+		throw std::runtime_error( "xs_open() failed" );
 
 	if ( !xs_watch( xsh_, "@introduceDomain", introduceToken_.c_str() ) ) {
 		xs_close( xsh_ );
-		throw Exception( "xs_watch() failed" );
+		throw std::runtime_error( "xs_watch() failed" );
 	}
 
 	if ( !xs_watch( xsh_, "@releaseDomain", releaseToken_.c_str() ) ) {
 		xs_unwatch( xsh_, "@introduceDomain", introduceToken_.c_str() );
 		xs_close( xsh_ );
-		throw Exception( "xs_watch() failed" );
+		throw std::runtime_error( "xs_watch() failed" );
 	}
 
 	xci_ = xc_interface_open( NULL, NULL, 0 );
@@ -49,7 +50,7 @@ XenDomainWatcher::XenDomainWatcher( LogHelper *logHelper )
 		xs_unwatch( xsh_, "@introduceDomain", introduceToken_.c_str() );
 		xs_unwatch( xsh_, "@releaseDomain", releaseToken_.c_str() );
 		xs_close( xsh_ );
-		throw Exception( "xc_interface_init() failed" );
+		throw std::runtime_error( "xc_interface_init() failed" );
 	}
 }
 
@@ -156,7 +157,7 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 
 			if ( err == -1 && ( errno == EACCES || errno == EPERM ) ) {
 				free( vec );
-				throw Exception( "access denied for xc_domain_getinfo()" );
+				throw std::runtime_error( "access denied for xc_domain_getinfo()" );
 			}
 		}
 

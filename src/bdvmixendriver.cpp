@@ -14,13 +14,13 @@
 // License along with this library.
 
 #include "bdvmi/xendriver.h"
-#include "bdvmi/exception.h"
 #include "bdvmi/loghelper.h"
 #include "bdvmi/xeninlines.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
+#include <stdexcept>
 #include <vector>
 #include <sys/mman.h>
 #include <sys/resource.h>
@@ -591,14 +591,14 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 
 	if ( !xci_ ) {
 		cleanup();
-		throw Exception( "xc_interface_init() failed" );
+		throw std::runtime_error( "xc_interface_init() failed" );
 	}
 
 	xc_dominfo_t info;
 
 	if ( xc_domain_getinfo( xci_, domain, 1, &info ) != 1 ) {
 		cleanup();
-		throw Exception( "xc_domain_getinfo() failed" );
+		throw std::runtime_error( "xc_domain_getinfo() failed" );
 	}
 
 	std::stringstream ss;
@@ -606,14 +606,14 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 	if ( hvmOnly && !info.hvm ) {
 		cleanup();
 		ss << "Domain " << domain << " is not a HVM guest";
-		throw Exception( ss.str(), Exception::NOT_HVM );
+		throw std::runtime_error( ss.str() );
 	}
 
 	xen_capabilities_info_t caps;
 
 	if ( xc_version( xci_, XENVER_capabilities, &caps ) != 0 ) {
 		cleanup();
-		throw Exception( "Could not get Xen capabilities" );
+		throw std::runtime_error( "Could not get Xen capabilities" );
 	}
 
 	guestWidth_ = strstr( caps, "x86_64" ) ? 8 : 4;
@@ -623,7 +623,7 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 
 		if ( !xsh_ ) {
 			cleanup();
-			throw Exception( "xs_open() failed" );
+			throw std::runtime_error( "xs_open() failed" );
 		}
 	}
 
@@ -659,13 +659,13 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 	if ( useAltP2m_ ) {
 		if ( xc_altp2m_set_domain_state( xci_, domain_, 1 ) < 0 ) {
 			cleanup();
-			throw Exception( std::string( "[ALTP2M] could not enable altp2m on domain: " ) +
+			throw std::runtime_error( std::string( "[ALTP2M] could not enable altp2m on domain: " ) +
 			                 strerror( errno ) );
 		}
 
 		if ( xc_altp2m_create_view( xci_, domain_, XENMEM_access_rwx, &altp2mViewId_ ) < 0 ) {
 			cleanup();
-			throw Exception( "[ALTP2M] could not create altp2m view" );
+			throw std::runtime_error( "[ALTP2M] could not create altp2m view" );
 		}
 
 		xen_pfn_t max_gpfn = 0;
@@ -677,7 +677,7 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 
 		if ( xc_altp2m_switch_to_view( xci_, domain_, altp2mViewId_ ) < 0 ) {
 			cleanup();
-			throw Exception( "[ALTP2M] could not switch to altp2m view" );
+			throw std::runtime_error( "[ALTP2M] could not switch to altp2m view" );
 		}
 	}
 }
@@ -713,7 +713,7 @@ domid_t XenDriver::getDomainId( const std::string &domainName )
 
 		if ( !xsh_ ) {
 			cleanup();
-			throw Exception( "xs_open() failed" );
+			throw std::runtime_error( "xs_open() failed" );
 		}
 	}
 
@@ -722,7 +722,7 @@ domid_t XenDriver::getDomainId( const std::string &domainName )
 
 	if ( size == 0 ) {
 		cleanup();
-		throw Exception( std::string( "Failed to retrieve domain ID by name [" ) + domainName + "]: " +
+		throw std::runtime_error( std::string( "Failed to retrieve domain ID by name [" ) + domainName + "]: " +
 		                 strerror( errno ) );
 	}
 

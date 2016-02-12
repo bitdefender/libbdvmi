@@ -28,12 +28,13 @@ using namespace std;
 
 namespace { // Anonymous namespace
 
-	sig_atomic_t stop;
+sig_atomic_t stop;
 
-	void stop_handler( int /* signo */ )
-	{
-		stop = 1;
-	}
+void stop_handler( int /* signo */ )
+{
+	stop = 1;
+}
+
 }
 
 class DemoLogHelper : public bdvmi::LogHelper {
@@ -166,8 +167,7 @@ private:
 
 int main()
 {
-	try
-	{
+	try {
 		signal( SIGINT, stop_handler );
 		signal( SIGHUP, stop_handler );
 		signal( SIGTERM, stop_handler );
@@ -191,9 +191,8 @@ int main()
 		pdw->waitForDomains();
 
 		cout << "\nDone." << endl;
-	}
-	catch ( const exception &e )
-	{
+
+	} catch ( const exception &e ) {
 		cerr << "Error: caught exception: " << e.what() << endl;
 		return -1;
 	}

@@ -17,7 +17,6 @@
 #define __BDVMIBACKENDFACTORY_H_INCLUDED__
 
 #include <string>
-#include "exception.h"
 
 namespace bdvmi {
 

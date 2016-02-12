@@ -17,7 +17,6 @@
 #define __BDVMIXENDOMAINWATCHER_H_INCLUDED__
 
 #include "domainwatcher.h"
-#include "exception.h"
 #include <set>
 
 extern "C" {

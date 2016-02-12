@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
-#include "bdvmi/exception.h"
 #include "bdvmi/xendriver.h"
 #include "bdvmi/xeneventmanager.h"
 #include "bdvmi/eventhandler.h"
@@ -24,6 +23,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <sstream>
+#include <stdexcept>
 #include <xen/memory.h>
 
 extern "C" {
@@ -67,7 +67,7 @@ XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFl
 
 	if ( !handlerFlags( hndlFlags ) ) {
 		cleanup();
-		throw Exception( "[Xen events] could not set up events" );
+		throw std::runtime_error( "[Xen events] could not set up events" );
 	}
 
 #endif // DISABLE_MEM_EVENT
@@ -87,7 +87,7 @@ XenEventManager::~XenEventManager()
 	try {
 		waitForEvents();
 	} catch ( ... ) {
-		// Exceptions not allowed to escape destructors
+		// std::runtime_errors not allowed to escape destructors
 	}
 
 	cleanup();
@@ -481,13 +481,13 @@ void XenEventManager::initXenStore()
 	xsh_ = xs_open( 0 );
 
 	if ( !xsh_ )
-		throw Exception( "[Xen events] xs_open() failed" );
+		throw std::runtime_error( "[Xen events] xs_open() failed" );
 
 	if ( !xs_watch( xsh_, "@releaseDomain", watchToken_.c_str() ) ||
 	     !xs_watch( xsh_, watchToken_.c_str(), watchToken_.c_str() ) ||
 	     !xs_watch( xsh_, xenServerWatchPath_.c_str(), watchToken_.c_str() ) ) {
 		xs_close( xsh_ );
-		throw Exception( "[Xen events] xs_watch() failed" );
+		throw std::runtime_error( "[Xen events] xs_watch() failed" );
 	}
 }
 
@@ -498,7 +498,7 @@ void XenEventManager::initEventChannels()
 
 	if ( !xce_ ) {
 		cleanup();
-		throw Exception( "[Xen events] failed to open event channel" );
+		throw std::runtime_error( "[Xen events] failed to open event channel" );
 	}
 
 	evtchnOn_ = true;
@@ -508,7 +508,7 @@ void XenEventManager::initEventChannels()
 
 	if ( port_ < 0 ) {
 		cleanup();
-		throw Exception( "[Xen events] failed to bind event channel" );
+		throw std::runtime_error( "[Xen events] failed to bind event channel" );
 	}
 
 	evtchnBindOn_ = true;
@@ -529,13 +529,13 @@ void XenEventManager::initMemAccess()
 
 		switch ( errno ) {
 			case EBUSY:
-				throw Exception( "[Xen events] the domain is either already connected "
+				throw std::runtime_error( "[Xen events] the domain is either already connected "
 				                 "with a monitoring application, or such an application crashed after "
 				                 "connecting to it" );
 			case ENODEV:
-				throw Exception( "[Xen events] EPT not supported for this guest" );
+				throw std::runtime_error( "[Xen events] EPT not supported for this guest" );
 			default:
-				throw Exception( "[Xen events] error initialising shared page" );
+				throw std::runtime_error( "[Xen events] error initialising shared page" );
 		}
 	}
 
@@ -558,7 +558,7 @@ void XenEventManager::initAltP2m()
 
 	if ( xc_monitor_singlestep( xci_, domain_, 1 ) < 0 ) {
 		cleanup();
-		throw Exception( "[ALTP2M] could not enable singlestep monitoring" );
+		throw std::runtime_error( "[ALTP2M] could not enable singlestep monitoring" );
 	}
 }
 
@@ -589,7 +589,7 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 		if ( errno == EINTR ) // interrupted by signal
 			return 0;
 
-		throw Exception( "[Xen events] poll() failed" );
+		throw std::runtime_error( "[Xen events] poll() failed" );
 	}
 
 	if ( fd[0].revents & POLLIN ) { // a XenStore event
@@ -650,17 +650,17 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 		int port = xc_evtchn_pending( xce_ );
 
 		if ( port == -1 )
-			throw Exception( "[Xen events] failed to read port from event channel" );
+			throw std::runtime_error( "[Xen events] failed to read port from event channel" );
 
 		if ( xc_evtchn_unmask( xce_, port ) != 0 )
-			throw Exception( "[Xen events] failed to unmask event channel port" );
+			throw std::runtime_error( "[Xen events] failed to unmask event channel port" );
 
 		return port;
 	}
 #endif
 
 	// shouldn't be here
-	throw Exception( "[Xen events] error getting event" );
+	throw std::runtime_error( "[Xen events] error getting event" );
 }
 
 void XenEventManager::getRequest( vm_event_request_t *req )
@@ -706,7 +706,7 @@ void XenEventManager::resumePage( vm_event_response_t *rsp )
 	// xc_monitor_resume(xci_, domain_);
 
 	if ( xc_evtchn_notify( xce_, port_ ) < 0 )
-		throw Exception( "[Xen events] error resuming page" );
+		throw std::runtime_error( "[Xen events] error resuming page" );
 }
 
 std::string XenEventManager::uuid()
