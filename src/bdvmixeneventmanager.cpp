@@ -109,7 +109,6 @@ void XenEventManager::cleanup()
 		munmap( ringPage_, XC_PAGE_SIZE );
 
 	if ( memAccessOn_ ) {
-		xc_mem_access_disable_emulate( xci_, domain_ );
 		xc_monitor_disable( xci_, domain_ );
 	}
 
@@ -538,8 +537,6 @@ void XenEventManager::initMemAccess()
 				throw std::runtime_error( "[Xen events] error initialising shared page" );
 		}
 	}
-
-	xc_mem_access_enable_emulate( xci_, domain_ );
 
 	memAccessOn_ = true;
 
