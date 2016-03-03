@@ -85,7 +85,6 @@ struct Registers {
 	uint64_t r15;
 	uint64_t rflags;
 	uint64_t rip;
-	uint64_t dr7;
 	uint64_t cr0;
 	uint64_t cr2;
 	uint64_t cr3;

@@ -49,22 +49,22 @@ public:
 public:
 	virtual void error( const string &message )
 	{
-		cerr << prefix_ << "ERROR " << message << endl;
+		cerr << prefix_ << "[ERROR] " << message << endl;
 	}
 
 	virtual void warning( const string &message )
 	{
-		cout << prefix_ << "WARNING " << message << endl;
+		cout << prefix_ << "[WARNING] " << message << endl;
 	}
 
 	virtual void info( const string &message )
 	{
-		cout << prefix_ << "INFO " << message << endl;
+		cout << prefix_ << "[INFO] " << message << endl;
 	}
 
 	virtual void debug( const string &message )
 	{
-		cout << prefix_ << "DEBUG " << message << endl;
+		cout << prefix_ << "[DEBUG] " << message << endl;
 	}
 
 private:
@@ -109,6 +109,15 @@ public:
 		cout << "XSETBV event on VCPU " << vcpu << ", ECX: 0x" << hex << ecx << endl;
 	}
 
+	// Reserved (currently not in use)
+	virtual bool handleBreakpoint( unsigned short vcpu, uint64_t gpa )
+	{
+		cout << "INT3 (breakpoint) event on VCPU " << vcpu << ", gpa: " << hex << showbase << gpa << endl;
+
+		// Did not do anything about the breakpoint, so reinject it.
+		return false;
+	}
+
 	virtual void handleSessionOver( bool /* domainStillRunning */ )
 	{
 		cout << "Session over." << endl;
@@ -129,19 +138,23 @@ public:
 	}
 
 public:
-	// A new domain appeared (it has just been started)
-	virtual void handleNewDomain( const string &domain )
+	// Found a domain
+	virtual void handleDomainFound( const string &domain )
 	{
 		cout << "A new domain started running: " << domain << endl;
 		hookDomain( domain );
 
 	}
 
-	// Found an already running domain
-	virtual void handleRunningDomain( const string &domain )
+	// The domain is no longer running
+	virtual void handleDomainFinished( const string &domain )
 	{
-		cout << "Found already running domain: " << domain << endl;
-		// Already running domains won't be hooked in this example.
+		cout << "Domain finished: " << domain << endl;
+	}
+
+	virtual void cleanup()
+	{
+		cout << "Done waiting for domains to start." << endl;
 	}
 
 private:

@@ -29,13 +29,20 @@ class DomainHandler;
 class DomainWatcher {
 
 protected:
+
 	struct DomainInfo {
-		DomainInfo() : isAlreadyRunning( false )
+		enum State {
+			STATE_NEW,
+			STATE_FINISHED
+		};
+
+		DomainInfo( const std::string &n, State s = STATE_NEW )
+		  : name( n ), state( s )
 		{
 		}
 
 		std::string name;
-		bool isAlreadyRunning;
+		State state;
 	};
 
 public:

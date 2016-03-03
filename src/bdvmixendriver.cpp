@@ -389,7 +389,6 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const throw()
 	regs.r14 = hwCpu.r14;
 	regs.r15 = hwCpu.r15;
 	regs.rip = hwCpu.rip;
-	regs.dr7 = hwCpu.dr7;
 	regs.cr0 = hwCpu.cr0;
 	regs.cr2 = hwCpu.cr2;
 	regs.cr3 = hwCpu.cr3;
@@ -660,7 +659,7 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 		if ( xc_altp2m_set_domain_state( xci_, domain_, 1 ) < 0 ) {
 			cleanup();
 			throw std::runtime_error( std::string( "[ALTP2M] could not enable altp2m on domain: " ) +
-			                 strerror( errno ) );
+			                          strerror( errno ) );
 		}
 
 		if ( xc_altp2m_create_view( xci_, domain_, XENMEM_access_rwx, &altp2mViewId_ ) < 0 ) {
@@ -723,7 +722,7 @@ domid_t XenDriver::getDomainId( const std::string &domainName )
 	if ( size == 0 ) {
 		cleanup();
 		throw std::runtime_error( std::string( "Failed to retrieve domain ID by name [" ) + domainName + "]: " +
-		                 strerror( errno ) );
+		                          strerror( errno ) );
 	}
 
 	for ( unsigned int i = 0; i < size; ++i ) {

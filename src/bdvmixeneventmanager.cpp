@@ -77,6 +77,7 @@ XenEventManager::~XenEventManager()
 {
 	xc_monitor_guest_request( xci_, domain_, 0, 1 );
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 1 );
+	// xc_monitor_software_breakpoint( xci_, domain_, 0 );
 
 	handler( NULL );
 
@@ -217,7 +218,6 @@ inline void copyRegisters( Registers &regs, const vm_event_request_t &req )
 	regs.r14 = req.data.regs.x86.r14;
 	regs.r15 = req.data.regs.x86.r15;
 	regs.rip = req.data.regs.x86.rip;
-	regs.dr7 = req.data.regs.x86.dr7;
 	regs.cr0 = req.data.regs.x86.cr0;
 	regs.cr2 = req.data.regs.x86.cr2;
 	regs.cr3 = req.data.regs.x86.cr3;
@@ -440,6 +440,22 @@ void XenEventManager::waitForEvents()
 					break;
 				}
 
+				case VM_EVENT_REASON_SOFTWARE_BREAKPOINT: {
+					bool reinject = true;
+
+					if ( h )
+						reinject = !h->handleBreakpoint( req.vcpu_id,
+						                                 req.u.software_breakpoint.gfn );
+
+					if ( reinject )
+						if ( xc_hvm_inject_trap( xci_, domain_, req.vcpu_id, 3,
+						                         HVMOP_TRAP_sw_exc, -1, 0, 0 ) < 0 ) {
+
+							if ( logHelper_ )
+								logHelper_->error( "Could not reinject breakpoint" );
+						}
+				}
+
 				default:
 					// unknown reason code
 					break;
@@ -528,9 +544,10 @@ void XenEventManager::initMemAccess()
 
 		switch ( errno ) {
 			case EBUSY:
-				throw std::runtime_error( "[Xen events] the domain is either already connected "
-				                 "with a monitoring application, or such an application crashed after "
-				                 "connecting to it" );
+				throw std::runtime_error(
+				        "[Xen events] the domain is either already connected "
+				        "with a monitoring application, or such an application crashed after "
+				        "connecting to it" );
 			case ENODEV:
 				throw std::runtime_error( "[Xen events] EPT not supported for this guest" );
 			default:
@@ -546,6 +563,7 @@ void XenEventManager::initMemAccess()
 
 	xc_monitor_guest_request( xci_, domain_, 1, 1 );
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 1, 1, 1 );
+	// xc_monitor_software_breakpoint( xci_, domain_, 1 );
 }
 
 void XenEventManager::initAltP2m()

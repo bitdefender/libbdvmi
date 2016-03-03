@@ -25,8 +25,50 @@
 
 namespace bdvmi {
 
+std::string uuidToString( const xen_domain_handle_t &uuid )
+{
+	std::stringstream ss;
+	ss.setf( std::ios::hex, std::ios::basefield );
+
+	for ( int i = 0; i < 4; ++i ) {
+		ss << ( uuid[i] >> 4 );
+		ss << ( uuid[i] & 0x0f );
+	}
+
+	ss << '-';
+
+	for ( int i = 4; i < 6; ++i ) {
+		ss << ( uuid[i] >> 4 );
+		ss << ( uuid[i] & 0x0f );
+	}
+
+	ss << '-';
+
+	for ( int i = 6; i < 8; ++i ) {
+		ss << ( uuid[i] >> 4 );
+		ss << ( uuid[i] & 0x0f );
+	}
+
+	ss << '-';
+
+	for ( int i = 8; i < 10; ++i ) {
+		ss << ( uuid[i] >> 4 );
+		ss << ( uuid[i] & 0x0f );
+	}
+
+	ss << '-';
+
+	for ( int i = 10; i < 16; ++i ) {
+		ss << ( uuid[i] >> 4 );
+		ss << ( uuid[i] & 0x0f );
+	}
+
+	return ss.str();
+}
+
 XenDomainWatcher::XenDomainWatcher( LogHelper *logHelper )
-    : xsh_( NULL ), xci_( NULL ), introduceToken_( "introduce" ), releaseToken_( "release" ), logHelper_( logHelper )
+    : xsh_( NULL ), xci_( NULL ), introduceToken_( "introduce" ), releaseToken_( "release" ), uninitToken_( "uninit" ),
+      logHelper_( logHelper ), firstUninitWrite_( true )
 {
 	xsh_ = xs_open( 0 );
 
@@ -52,12 +94,32 @@ XenDomainWatcher::XenDomainWatcher( LogHelper *logHelper )
 		xs_close( xsh_ );
 		throw std::runtime_error( "xc_interface_init() failed" );
 	}
+
+	// Retrieving the UUID can also be achieved under Linux by simply reading
+	// /sys/hypervisor/uuid.
+
+	xen_domain_handle_t uuid;
+
+	if ( !xc_version( xci_, XENVER_guest_handle, &uuid ) ) {
+		ownUuid_ = uuidToString( uuid );
+		uninitXenStorePath_ = std::string( "/vm/" ) + ownUuid_ + "/uninit-introspection";
+
+		if ( logHelper_ )
+			logHelper_->info( std::string( "SVA UUID: " ) + ownUuid_ );
+	}
+
+	if ( !uninitXenStorePath_.empty() )
+		xs_watch( xsh_, uninitXenStorePath_.c_str(), uninitToken_.c_str() );
 }
 
 XenDomainWatcher::~XenDomainWatcher()
 {
 	xs_unwatch( xsh_, "@introduceDomain", introduceToken_.c_str() );
 	xs_unwatch( xsh_, "@releaseDomain", releaseToken_.c_str() );
+
+	if ( !uninitXenStorePath_.empty() )
+		xs_unwatch( xsh_, uninitXenStorePath_.c_str(), uninitToken_.c_str() );
+
 	xs_close( xsh_ );
 
 	xc_interface_close( xci_ );
@@ -97,9 +159,6 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 
 					// New domain
 					if ( domIds_.find( dominfo.domid ) == domIds_.end() ) {
-
-						domIds_.insert( dominfo.domid );
-
 						std::stringstream ss;
 						ss << "/local/domain/" << dominfo.domid << "/name";
 
@@ -109,43 +168,16 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 						char *name = static_cast<char *>(
 						        xs_read_timeout( xsh_, XBT_NULL, path.c_str(), NULL, 1 ) );
 
-						/*
-						if ( !name && errno && logHelper_ )
-						        logHelper_->error( std::string( "xs_read() error reading " ) +
-						                           ss.str() + ": " + strerror( errno ) );
-						*/
-
 						if ( name ) { // domain running or new domain w name set
-
-							ss.str( "" );
-							ss << "/local/domain/" << dominfo.domid << "/console/tty";
-							path = ss.str();
-
-							DomainInfo domain;
-
-							errno = 0;
-							void *console = xs_read_timeout( xsh_, XBT_NULL, path.c_str(),
-							                                 NULL, 1 );
-
-							/*
-							if ( !console && errno && logHelper_ )
-							        logHelper_->error(
-							                std::string( "xs_read() error reading " ) +
-							                ss.str() + ": " + strerror( errno ) );
-							*/
-
-							if ( console ) {
-								free( console );
-								domain.isAlreadyRunning = true;
-							} else {
-								domain.isAlreadyRunning = false;
-							}
-
-							domain.name = name;
+							DomainInfo domain( name, DomainInfo::STATE_NEW );
 							free( name );
 
-							domains.push_back( domain );
-							ret = true;
+							if ( !isSelf( dominfo.domid ) ) {
+								domains.push_back( domain );
+								domIds_[dominfo.domid] = domain.name;
+								ret = true;
+							}
+
 						} else { // new domain, name not yet set
 							ss.str( "" );
 							ss << "dom" << dominfo.domid;
@@ -157,20 +189,43 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 
 			if ( err == -1 && ( errno == EACCES || errno == EPERM ) ) {
 				free( vec );
-				throw std::runtime_error( "access denied for xc_domain_getinfo()" );
+
+				std::runtime_error e( "access denied for xc_domain_getinfo()" );
+
+				if ( logHelper_ )
+					logHelper_->error( e.what() );
+
+				throw e;
 			}
 		}
 
 		if ( vec && releaseToken_ == vec[XS_WATCH_TOKEN] ) {
 
-			int domid = 1;
-			xc_dominfo_t dominfo;
+			std::map<domid_t, std::string>::iterator i = domIds_.begin(), j;
 
-			while ( xc_domain_getinfo( xci_, domid, 1, &dominfo ) == 1 ) {
-				domid = dominfo.domid + 1;
+			while ( i != domIds_.end() ) {
+				j = i;
+				++i;
 
-				if ( !xs_is_domain_introduced( xsh_, dominfo.domid ) )
-					domIds_.erase( dominfo.domid );
+				if ( !xs_is_domain_introduced( xsh_, j->first ) ) {
+					DomainInfo domain( j->second, DomainInfo::STATE_FINISHED );
+					domains.push_back( domain );
+
+					domIds_.erase( j );
+
+					ret = true;
+				}
+			}
+		}
+
+		if ( vec && uninitToken_ == vec[XS_WATCH_TOKEN] ) {
+			if ( firstUninitWrite_ ) // ignore first event, it's just how XenStore works
+				firstUninitWrite_ = false;
+			else {
+				if ( logHelper_ )
+					logHelper_->info( std::string( "XenStore key " ) + uninitXenStorePath_ +
+					                  " has been written, shutting down" );
+				stop();
 			}
 		}
 
@@ -183,15 +238,14 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 				        xs_read_timeout( xsh_, XBT_NULL, vec[XS_WATCH_PATH], NULL, 1 ) );
 
 				if ( name ) {
-					DomainInfo domain;
-					domain.isAlreadyRunning = false;
-					domain.name = name;
+					if ( !isSelf( domid ) ) {
+						DomainInfo domain( name, DomainInfo::STATE_NEW );
+						domains.push_back( domain );
+						ret = true;
+					}
+
 					free( name );
-
-					domains.push_back( domain );
 					xs_unwatch( xsh_, vec[XS_WATCH_PATH], vec[XS_WATCH_TOKEN] );
-
-					ret = true;
 				}
 			}
 		}
@@ -200,6 +254,34 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 	}
 
 	return ret;
+}
+
+bool XenDomainWatcher::isSelf( domid_t domain ) const
+{
+	std::stringstream ss;
+	std::string uuid;
+	unsigned int size = 0;
+
+	ss << "/local/domain/" << domain << "/vm";
+
+	char *path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), &size, 1 ) );
+
+	if ( path && path[0] != '\0' ) {
+		ss.str( "" );
+		ss << path << "/uuid";
+
+		free( path );
+		size = 0;
+
+		path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), &size, 1 ) );
+
+		if ( path && path[0] != '\0' )
+			uuid = path;
+	}
+
+	free( path );
+
+	return uuid == ownUuid_;
 }
 
 } // namespace bdvmi

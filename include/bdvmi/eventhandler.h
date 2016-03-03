@@ -52,6 +52,9 @@ public:
 
 	virtual void handleXSETBV( unsigned short vcpu, uint64_t xcr0 ) = 0;
 
+	// Return false if you want to reinject
+	virtual bool handleBreakpoint( unsigned short vcpu, uint64_t gpa ) = 0;
+
 	// Notice that the connection to the guest has been terminated (if guestStillRunning is true
 	// then this has _not_ happened because the guest shut down or has been forcefully terminated).
 	virtual void handleSessionOver( bool guestStillRunning ) = 0;

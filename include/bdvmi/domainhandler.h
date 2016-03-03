@@ -29,11 +29,11 @@ public:
 	}
 
 public:
-	// A new domain appeared
-	virtual void handleNewDomain( const std::string &domain ) = 0;
+	virtual void handleDomainFound( const std::string &domain ) = 0;
 
-	// Handle an already running domain
-	virtual void handleRunningDomain( const std::string &domain ) = 0;
+	virtual void handleDomainFinished( const std::string &domain ) = 0;
+
+	virtual void cleanup() = 0;
 };
 
 } // namespace bdvmi

@@ -26,25 +26,39 @@ void DomainWatcher::waitForDomains()
 {
 	for ( ;; ) {
 
-		if ( sigStop_ && *sigStop_ )
+		if ( ( sigStop_ && *sigStop_ ) || stop_ ) {
+			if ( handler_ )
+				handler_->cleanup();
 			return;
-
-		if ( stop_ )
-			return;
+		}
 
 		std::list<DomainInfo> domains;
+		int ms = 100;
 
-		if ( waitForDomainsOrTimeout( domains, 100 ) ) {
+		try {
+			if ( waitForDomainsOrTimeout( domains, ms ) ) {
 
-			std::list<DomainInfo>::const_iterator i = domains.begin();
+				std::list<DomainInfo>::const_iterator i = domains.begin();
 
-			for ( ; i != domains.end(); ++i ) {
-				if ( handler_ && !i->isAlreadyRunning )
-					handler_->handleNewDomain( i->name );
+				for ( ; i != domains.end(); ++i ) {
 
-				if ( handler_ && i->isAlreadyRunning )
-					handler_->handleRunningDomain( i->name );
+					if ( handler_ ) {
+						switch ( i->state ) {
+						case DomainInfo::STATE_NEW:
+							handler_->handleDomainFound( i->name );
+							break;
+						case DomainInfo::STATE_FINISHED:
+							handler_->handleDomainFinished( i->name );
+							break;
+						}
+					}
+				}
 			}
+
+			ms = 100;
+
+		} catch ( ... ) { // try again on exceptions, but later
+			ms = 2000; // make it 2 seconds
 		}
 	}
 }

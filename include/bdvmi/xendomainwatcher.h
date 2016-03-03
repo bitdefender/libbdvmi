@@ -17,7 +17,7 @@
 #define __BDVMIXENDOMAINWATCHER_H_INCLUDED__
 
 #include "domainwatcher.h"
-#include <set>
+#include <map>
 
 extern "C" {
 #include <xenctrl.h>
@@ -51,13 +51,19 @@ private:
 private:
 	virtual bool waitForDomainsOrTimeout( std::list<DomainInfo> &domains, int ms );
 
+	bool isSelf( domid_t domain ) const;
+
 private:
 	xs_handle *xsh_;
 	xc_interface *xci_;
+	std::string ownUuid_;
+	std::string uninitXenStorePath_;
 	const std::string introduceToken_;
 	const std::string releaseToken_;
-	std::set<domid_t> domIds_;
+	const std::string uninitToken_;
+	std::map<domid_t, std::string> domIds_;
 	LogHelper *logHelper_;
+	bool firstUninitWrite_;
 };
 
 } // namespace bdvmi
