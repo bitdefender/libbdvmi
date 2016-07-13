@@ -13,7 +13,7 @@ This will build the library and the test under examples/.
 
 To see the test in action, run (as root):
 
-# ./hookdomain
+# ./hookguest
 
 in the examples/ subdirectory, then simply start a Xen domain up.
 
