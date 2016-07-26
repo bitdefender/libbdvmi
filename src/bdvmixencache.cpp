@@ -14,6 +14,7 @@
 // License along with this library.
 
 #include "bdvmi/loghelper.h"
+#include "bdvmi/statscollector.h"
 #include "bdvmi/xencache.h"
 #include <sys/mman.h>
 #include <cstring>
@@ -117,6 +118,8 @@ MapReturnCode XenPageCache::insertNew( unsigned long gfn, void *&pointer )
 		cleanup();
 
 	CacheInfo ci;
+
+	StatsCollector::instance().incStat( "xcMapPage" );
 
 	ci.accessed = generateIndex();
 	ci.in_use = true;

@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
+#include "bdvmi/statscollector.h"
 #include "bdvmi/xendriver.h"
 #include "bdvmi/xeneventmanager.h"
 #include "bdvmi/eventhandler.h"
@@ -52,7 +53,7 @@ extern "C" {
 
 namespace bdvmi {
 
-XenEventManager::XenEventManager( const XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper,
+XenEventManager::XenEventManager( XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper,
                                   bool useAltP2m )
     : driver_( driver ), xci_( driver.nativeHandle() ), domain_( driver.id() ), stop_( false ), xce_( NULL ),
       port_( -1 ), xsh_( NULL ), evtchnPort_( 0 ), ringPage_( NULL ), memAccessOn_( false ), evtchnOn_( false ),
@@ -77,7 +78,7 @@ XenEventManager::~XenEventManager()
 {
 	xc_monitor_guest_request( xci_, domain_, 0, 1 );
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 1 );
-	// xc_monitor_software_breakpoint( xci_, domain_, 0 );
+	xc_monitor_software_breakpoint( xci_, domain_, 0 );
 
 	handler( NULL );
 
@@ -124,39 +125,47 @@ void XenEventManager::cleanup()
 	if ( xsh_ ) {
 		xs_unwatch( xsh_, "@releaseDomain", watchToken_.c_str() );
 		xs_unwatch( xsh_, watchToken_.c_str(), watchToken_.c_str() );
-		xs_unwatch( xsh_, xenServerWatchPath_.c_str(), watchToken_.c_str() );
+
+		xs_unwatch( xsh_, controlXenStorePath_.c_str(), watchToken_.c_str() );
+		xs_rm( xsh_, XBT_NULL, controlXenStorePath_.c_str() );
+
 		xs_close( xsh_ );
 	}
 }
 
 bool XenEventManager::handlerFlags( unsigned short flags )
 {
-	if ( flags & ENABLE_CR ) {
-
-		if ( ( handlerFlags_ & ENABLE_CR ) == 0 ) {
+	if ( flags & ENABLE_CR0 ) {
+		if ( ( handlerFlags_ & ENABLE_CR0 ) == 0 ) {
 			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 1, 1, 1 ) ) {
 				LOG_ERROR( "[Xen events] could not set up CR0 event handler" );
 				return false;
 			}
+		}
+	} else if ( handlerFlags_ & ENABLE_CR0 )
+		xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 0, 1, 1 );
 
+	if ( flags & ENABLE_CR3 ) {
+		if ( ( handlerFlags_ & ENABLE_CR3 ) == 0 ) {
 			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 1, 1, 1 ) ) {
 				LOG_ERROR( "[Xen events] could not set up CR3 event handler" );
 				return false;
 			}
+		}
+	} else if ( handlerFlags_ & ENABLE_CR3 )
+		xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 0, 1, 1 );
 
+	if ( flags & ENABLE_CR4 ) {
+		if ( ( handlerFlags_ & ENABLE_CR4 ) == 0 ) {
 			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 1, 1, 1 ) ) {
 				LOG_ERROR( "[Xen events] could not set up CR4 event handler" );
 				return false;
 			}
 		}
-	} else {
-		if ( handlerFlags_ & ENABLE_CR ) {
-			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 0, 1, 1 );
-			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 0, 1, 1 );
-			xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 0, 1, 1 );
-		}
-	}
+	} else if ( handlerFlags_ & ENABLE_CR4 )
+		xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 0, 1, 1 );
 
+#if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
 	if ( flags & ENABLE_MSR ) {
 
 		if ( ( handlerFlags_ & ENABLE_MSR ) == 0 ) {
@@ -170,7 +179,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 		if ( handlerFlags_ & ENABLE_MSR )
 			xc_monitor_mov_to_msr( xci_, domain_, 0, 1 );
 	}
-
+#endif
 	handlerFlags_ = flags;
 
 	/*
@@ -182,6 +191,26 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 	*/
 
 	return true;
+}
+
+bool XenEventManager::enableMsrEvents( unsigned int msr )
+{
+#if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
+	msr = msr; // Avoid unused parameter warning
+	return true;
+#else
+	return ( xc_monitor_mov_to_msr( xci_, domain_, msr, 1 ) == 0 );
+#endif
+}
+
+bool XenEventManager::disableMsrEvents( unsigned int msr )
+{
+#if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
+	msr = msr; // Avoid unused parameter warning
+	return true;
+#else
+	return ( xc_monitor_mov_to_msr( xci_, domain_, msr, 0 ) == 0 );
+#endif
 }
 
 inline void copyRegisters( Registers &regs, const vm_event_request_t &req )
@@ -262,10 +291,16 @@ void XenEventManager::waitForEvents()
 		vm_event_request_t req;
 		vm_event_response_t rsp;
 
+		int events = 0;
+
 		while ( RING_HAS_UNCONSUMED_REQUESTS( &backRing_ ) ) {
 			unsigned short hndlFlags = handlerFlags();
 
 			getRequest( &req );
+
+			++events;
+
+			StatsCollector::instance().incStat( "eventCount" );
 
 			memset( &rsp, 0, sizeof( rsp ) );
 			rsp.vcpu_id = req.vcpu_id;
@@ -276,6 +311,8 @@ void XenEventManager::waitForEvents()
 			rsp.version = VM_EVENT_INTERFACE_VERSION;
 			rsp.u.mem_access.flags = req.u.mem_access.flags;
 
+			driver_.enableCache( req.vcpu_id );
+
 			if ( h )
 				h->runPreEvent();
 
@@ -284,6 +321,8 @@ void XenEventManager::waitForEvents()
 				case VM_EVENT_REASON_MEM_ACCESS: {
 					Registers regs;
 					uint32_t rspDataSize = sizeof( rsp.data.emul_read_data.data );
+
+					StatsCollector::instance().incStat( "eventsMemAccess" );
 
 					copyRegisters( regs, req );
 
@@ -325,6 +364,7 @@ void XenEventManager::waitForEvents()
 								rsp.data.regs.x86.rip =
 								        req.data.regs.x86.rip + instructionSize;
 								rsp.flags |= VM_EVENT_FLAG_SET_REGISTERS;
+								rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
 								break;
 #endif
 							case ALLOW_VIRTUAL:
@@ -357,6 +397,8 @@ void XenEventManager::waitForEvents()
 				}
 
 				case VM_EVENT_REASON_SINGLESTEP:
+					StatsCollector::instance().incStat( "eventsSingleStep" );
+
 					if ( useAltP2m_ ) {
 						rsp.reason = req.reason;
 						rsp.flags |= VM_EVENT_FLAG_ALTERNATE_P2M;
@@ -370,6 +412,8 @@ void XenEventManager::waitForEvents()
 				case VM_EVENT_REASON_WRITE_CTRLREG: {
 					Registers regs;
 					unsigned short crNumber = 3;
+
+					StatsCollector::instance().incStat( "eventsWriteCtrlReg" );
 
 					rsp.u.write_ctrlreg.index = req.u.write_ctrlreg.index;
 
@@ -395,7 +439,7 @@ void XenEventManager::waitForEvents()
 
 					copyRegisters( regs, req );
 
-					if ( h && ( hndlFlags & ENABLE_CR ) ) {
+					if ( h ) {
 						HVAction action = NONE;
 
 						h->handleCR( req.vcpu_id, crNumber, regs, req.u.write_ctrlreg.old_value,
@@ -409,6 +453,8 @@ void XenEventManager::waitForEvents()
 				}
 
 				case VM_EVENT_REASON_MOV_TO_MSR:
+					StatsCollector::instance().incStat( "eventsMovToMsr" );
+
 					if ( h && ( hndlFlags & ENABLE_MSR ) ) {
 
 						HVAction action = NONE;
@@ -430,6 +476,8 @@ void XenEventManager::waitForEvents()
 					break;
 
 				case VM_EVENT_REASON_GUEST_REQUEST: {
+					StatsCollector::instance().incStat( "eventsGuestRequest" );
+
 					Registers regs;
 					copyRegisters( regs, req );
 
@@ -441,6 +489,8 @@ void XenEventManager::waitForEvents()
 				}
 
 				case VM_EVENT_REASON_SOFTWARE_BREAKPOINT: {
+					StatsCollector::instance().incStat( "eventsBreakPoint" );
+
 					bool reinject = true;
 
 					if ( h )
@@ -449,7 +499,7 @@ void XenEventManager::waitForEvents()
 
 					if ( reinject )
 						if ( xc_hvm_inject_trap( xci_, domain_, req.vcpu_id, 3,
-						                         HVMOP_TRAP_sw_exc, -1, 0, 0 ) < 0 ) {
+						                         HVMOP_TRAP_sw_exc, ~0u, 1, 0 ) < 0 ) {
 
 							if ( logHelper_ )
 								logHelper_->error( "Could not reinject breakpoint" );
@@ -461,8 +511,18 @@ void XenEventManager::waitForEvents()
 					break;
 			}
 
-			resumePage( &rsp ); // will throw on error!
+			if ( h )
+				h->runPostEvent();
+
+			driver_.disableCache();
+
+			/* Put the page info on the ring */
+			putResponse( &rsp );
+			resumePage();
 		}
+
+		// if ( events )
+		//	resumePage();
 #endif // DISABLE_MEM_EVENT
 
 		if ( shuttingDown )
@@ -486,21 +546,31 @@ void XenEventManager::stop()
 
 void XenEventManager::initXenStore()
 {
-	std::stringstream ss;
-	ss << "/local/domain/0/device-model/" << domain_;
-
-	watchToken_ = ss.str();
-
-	xenServerWatchPath_ = std::string( "/vm/" ) + driver_.uuid() + "/uninit-introspection";
-
 	xsh_ = xs_open( 0 );
 
 	if ( !xsh_ )
 		throw std::runtime_error( "[Xen events] xs_open() failed" );
 
+	std::stringstream ss;
+	ss << "/local/domain/0/device-model/" << domain_;
+
+	watchToken_ = ss.str();
+
+	ss.str("");
+	ss << "/local/domain/" << domain_ << "/vm-data/introspection-control";
+
+	controlXenStorePath_ = ss.str();
+
+	std::string value = "started";
+
+	if ( !xs_write( xsh_, XBT_NULL, controlXenStorePath_.c_str(), value.c_str(), value.length() ) ) {
+		if ( logHelper_ )
+			logHelper_->error( std::string("Could not write XenStore key ") + controlXenStorePath_ );
+	}
+
 	if ( !xs_watch( xsh_, "@releaseDomain", watchToken_.c_str() ) ||
 	     !xs_watch( xsh_, watchToken_.c_str(), watchToken_.c_str() ) ||
-	     !xs_watch( xsh_, xenServerWatchPath_.c_str(), watchToken_.c_str() ) ) {
+	     !xs_watch( xsh_, controlXenStorePath_.c_str(), watchToken_.c_str() ) ) {
 		xs_close( xsh_ );
 		throw std::runtime_error( "[Xen events] xs_watch() failed" );
 	}
@@ -551,7 +621,8 @@ void XenEventManager::initMemAccess()
 			case ENODEV:
 				throw std::runtime_error( "[Xen events] EPT not supported for this guest" );
 			default:
-				throw std::runtime_error( "[Xen events] error initialising shared page" );
+				throw std::runtime_error( std::string( "[Xen events] error initialising shared page: " )
+					+ strerror( errno ) );
 		}
 	}
 
@@ -563,7 +634,7 @@ void XenEventManager::initMemAccess()
 
 	xc_monitor_guest_request( xci_, domain_, 1, 1 );
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 1, 1, 1 );
-	// xc_monitor_software_breakpoint( xci_, domain_, 1 );
+	xc_monitor_software_breakpoint( xci_, domain_, 1 );
 }
 
 void XenEventManager::initAltP2m()
@@ -634,17 +705,27 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 					free( buf );
 					xs_transaction_end( xsh_, th, 0 );
 				}
-			} else if ( vec && xenServerWatchPath_ == vec[XS_WATCH_PATH] ) {
+			} else if ( vec && controlXenStorePath_ == vec[XS_WATCH_PATH] ) {
 
 				if ( firstXenServerWatch_ ) {
 					// Ignore first triggered watch, xs_watch() does that.
 					firstXenServerWatch_ = false;
 				} else {
-					if ( logHelper_ )
-						logHelper_->info( xenServerWatchPath_ + " has been written" );
+					char *value = static_cast<char *>(
+					        xs_read_timeout( xsh_, XBT_NULL, vec[XS_WATCH_PATH], NULL, 1 ) );
 
-					guestStillRunning_ = true;
-					stop();
+					if ( value ) {
+						std::string tmp = value;
+						free( value );
+
+						if ( logHelper_ )
+							logHelper_->info( std::string( "Received control command: " ) + tmp );
+
+						if ( tmp == "shutdown" ) {
+							guestStillRunning_ = true;
+							stop();
+						}
+					}
 				}
 			} else if ( vec && std::string( "@releaseDomain" ) == vec[XS_WATCH_PATH] ) {
 				if ( !xs_is_domain_introduced( xsh_, domain_ ) ) {
@@ -661,7 +742,7 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 	}
 
 #ifndef DISABLE_MEM_EVENT
-	if ( fd[1].revents & POLLIN ) { // a mem_event
+	if ( fd[1].revents & POLLIN ) { // a vm_event
 		int port = xc_evtchn_pending( xce_ );
 
 		if ( port == -1 )
@@ -712,11 +793,8 @@ void XenEventManager::putResponse( vm_event_response_t *rsp )
 	RING_PUSH_RESPONSES( back_ring );
 }
 
-void XenEventManager::resumePage( vm_event_response_t *rsp )
+void XenEventManager::resumePage()
 {
-	/* Put the page info on the ring */
-	putResponse( rsp );
-
 	/* Tell Xen page is ready */
 	// xc_monitor_resume(xci_, domain_);
 

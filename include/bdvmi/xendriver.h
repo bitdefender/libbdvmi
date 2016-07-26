@@ -21,6 +21,7 @@
 #include <string>
 #include <sstream>
 #include <map>
+#include <mutex>
 
 #include "driver.h"
 #include "xencache.h"
@@ -36,6 +37,17 @@ namespace bdvmi {
 class LogHelper;
 
 class XenDriver : public Driver {
+
+	struct RegsCache {
+		RegsCache() : vcpu_( -1 ), valid_( false )
+		{
+		}
+
+		Registers registers_;
+		int vcpu_;
+		bool valid_;
+		std::mutex mutex_;
+	};
 
 public:
 	// Create a XenDriver object with the domain name
@@ -104,6 +116,8 @@ public:
 
 	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw();
 
+	virtual bool update() throw();
+
 	virtual std::string uuid() const throw()
 	{
 		return uuid_;
@@ -113,6 +127,10 @@ public:
 	{
 		return domain_;
 	}
+
+	virtual void enableCache( unsigned short vcpu );
+
+	virtual void disableCache();
 
 public: // Xen specific-stuff
 	xc_interface *nativeHandle() const
@@ -163,6 +181,8 @@ private:
 	std::string uuid_;
 	bool useAltP2m_;
 	uint16_t altp2mViewId_;
+	mutable RegsCache regsCache_;
+	bool update_;
 };
 
 } // namespace bdvmi

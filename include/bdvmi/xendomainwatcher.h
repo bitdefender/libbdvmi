@@ -51,19 +51,25 @@ private:
 private:
 	virtual bool waitForDomainsOrTimeout( std::list<DomainInfo> &domains, int ms );
 
-	bool isSelf( domid_t domain ) const;
+	bool isSelf( domid_t domain );
+
+	void initControlKey( domid_t domain );
+
+	bool getNewDomains( std::list<DomainInfo> &domains, char **vec );
 
 private:
 	xs_handle *xsh_;
 	xc_interface *xci_;
 	std::string ownUuid_;
-	std::string uninitXenStorePath_;
+	std::string controlXenStorePath_;
 	const std::string introduceToken_;
 	const std::string releaseToken_;
-	const std::string uninitToken_;
+	const std::string controlToken_;
 	std::map<domid_t, std::string> domIds_;
 	LogHelper *logHelper_;
 	bool firstUninitWrite_;
+	domid_t ownId_;
+	bool keyCreated_;
 };
 
 } // namespace bdvmi

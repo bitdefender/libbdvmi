@@ -110,6 +110,8 @@ struct Mtrrs {
 
 enum MapReturnCode { MAP_SUCCESS, MAP_FAILED_GENERIC, MAP_PAGE_NOT_PRESENT, MAP_INVALID_PARAMETER };
 
+class EventHandler;
+
 /*
  * The functions a driver implements are not allowed to throw exceptions,
  * because they will be called from ms_abi (WINAPI) functions, and GCC
@@ -120,9 +122,24 @@ enum MapReturnCode { MAP_SUCCESS, MAP_FAILED_GENERIC, MAP_PAGE_NOT_PRESENT, MAP_
 class Driver {
 
 public:
+	Driver( EventHandler *handler = NULL ) : handler_( handler )
+	{
+	}
+
 	// base class => virtual destructor
 	virtual ~Driver()
 	{
+	}
+
+public:
+	void handler( EventHandler *h )
+	{
+		handler_ = h;
+	}
+
+	EventHandler * handler() const
+	{
+		return handler_;
 	}
 
 public:
@@ -191,9 +208,18 @@ public:
 
 	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw() = 0;
 
+	virtual bool update() throw() = 0;
+
 	virtual std::string uuid() const throw() = 0;
 
 	virtual unsigned int id() const throw() = 0;
+
+	virtual void enableCache( unsigned short vcpu ) = 0;
+
+	virtual void disableCache() = 0;
+
+private:
+	EventHandler *handler_;
 };
 
 } // namespace bdvmi

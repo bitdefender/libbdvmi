@@ -128,6 +128,17 @@ public:
 	{
 		cout << "Prepare for event ..." << endl;
 	}
+
+	virtual void handleFatalError()
+	{
+		throw std::runtime_error( "A fatal error occurred, cannot continue" );
+	}
+
+	virtual void runPostEvent()
+	{
+		cout << "Event handled ..." << endl;
+	}
+
 };
 
 class DemoDomainHandler : public bdvmi::DomainHandler {
@@ -163,7 +174,7 @@ private:
 		auto_ptr<bdvmi::Driver> pd( bf_.driver( domain ) );
 		auto_ptr<bdvmi::EventManager> em( bf_.eventManager( *pd, bdvmi::EventManager::ENABLE_MSR |
 		                                                         bdvmi::EventManager::ENABLE_XSETBV |
-		                                                         bdvmi::EventManager::ENABLE_CR ) );
+		                                                         bdvmi::EventManager::ENABLE_CR3 ) );
 
 		DemoEventHandler deh;
 

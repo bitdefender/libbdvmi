@@ -28,12 +28,14 @@ class EventManager {
 
 public:
 	enum { ENABLE_NONE = 0,
-	       ENABLE_CR = 1,
-	       ENABLE_MSR = ( 1 << 1 ),
-	       ENABLE_MEMORY = ( 1 << 2 ),
-	       ENABLE_VMCALL = ( 1 << 3 ),
-	       ENABLE_XSETBV = ( 1 << 4 ),
-	       ENABLE_ALL = ( ENABLE_CR | ENABLE_MSR | ENABLE_MEMORY | ENABLE_VMCALL | ENABLE_XSETBV ) };
+	       ENABLE_CR0 = 1,
+	       ENABLE_CR3 = ( 1 << 1 ),
+	       ENABLE_CR4 = ( 1 << 2 ),
+	       ENABLE_MSR = ( 1 << 3 ),
+	       ENABLE_MEMORY = ( 1 << 4 ),
+	       ENABLE_VMCALL = ( 1 << 5 ),
+	       ENABLE_XSETBV = ( 1 << 6 ),
+	       ENABLE_ALL = ( ENABLE_CR0 | ENABLE_CR3 | ENABLE_CR4 | ENABLE_MSR | ENABLE_MEMORY | ENABLE_VMCALL | ENABLE_XSETBV ) };
 
 public:
 	EventManager( EventHandler *handler = 0 ) : sigStop_( 0 ), handler_( handler )
@@ -63,7 +65,11 @@ public:
 		sigStop_ = sigStop;
 	}
 
-	// Set handler flags (i.e. ENABLE_MSR | ENABLE_MEMORY)
+	virtual bool enableMsrEvents( unsigned int msr ) = 0;
+
+	virtual bool disableMsrEvents( unsigned int msr ) = 0;
+
+	// Set handler flags
 	virtual bool handlerFlags( unsigned short flags ) = 0;
 
 	// Get handler flags

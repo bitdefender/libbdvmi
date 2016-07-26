@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
+#include "bdvmi/eventhandler.h"
+#include "bdvmi/statscollector.h"
 #include "bdvmi/xendriver.h"
 #include "bdvmi/loghelper.h"
 #include "bdvmi/xeninlines.h"
@@ -73,14 +75,14 @@ static bool check_page( void *addr )
 
 XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
     : xci_( NULL ), xsh_( NULL ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
-      useAltP2m_( useAltP2m ), altp2mViewId_( 0 )
+      useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false )
 {
 	init( domain, hvmOnly );
 }
 
 XenDriver::XenDriver( const std::string &domainName, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
     : xci_( NULL ), xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
-      useAltP2m_( useAltP2m ), altp2mViewId_( 0 )
+      useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false )
 {
 	domain_ = getDomainId( domainName );
 	init( domain_, hvmOnly );
@@ -111,6 +113,8 @@ bool XenDriver::cpuCount( unsigned int &count ) const throw()
 {
 	xc_dominfo_t info;
 
+	StatsCollector::instance().incStat( "xcDomainInfo" );
+
 	if ( xc_domain_getinfo( xci_, domain_, 1, &info ) != 1 ) {
 
 		if ( logHelper_ )
@@ -129,6 +133,8 @@ bool XenDriver::tscSpeed( unsigned long long &speed ) const throw()
 {
 	uint64_t elapsed_nsec;
 	uint32_t tsc_mode, gtsc_khz, incarnation;
+
+	StatsCollector::instance().incStat( "xcTscInfo" );
 
 	if ( xc_domain_get_tsc_info( xci_, domain_, &tsc_mode, &elapsed_nsec, &gtsc_khz, &incarnation ) != 0 ) {
 		if ( logHelper_ )
@@ -154,6 +160,8 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 	static struct hvm_hw_mtrr hwMtrr;
 
 	if ( !hwMtrrInit ) {
+		StatsCollector::instance().incStat( "partialContext" );
+		StatsCollector::instance().incStat( "partialMtrr" );
 		if ( xc_domain_hvm_getcontext_partial( xci_, domain_, HVM_SAVE_CODE( MTRR ), 0, &hwMtrr,
 		                                       sizeof( hwMtrr ) ) != 0 ) {
 
@@ -273,6 +281,8 @@ bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, b
 
 	int rc = 0;
 
+	StatsCollector::instance().incStat( "xcSetMemAccess" );
+
 	if ( useAltP2m_ )
 		rc = xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, memaccess );
 	else
@@ -294,6 +304,8 @@ bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, 
 {
 	xenmem_access_t memaccess;
 	unsigned long gfn = paddr_to_pfn( guestAddress );
+
+	StatsCollector::instance().incStat( "xcGetMemAccess" );
 
 	if ( xc_get_mem_access( xci_, domain_, gfn, &memaccess ) ) {
 
@@ -348,13 +360,33 @@ bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, 
 
 bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const throw()
 {
+	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
+
+	if ( regsCache_.valid_ && regsCache_.vcpu_ == static_cast<int>( vcpu ) ) {
+		regs = regsCache_.registers_;
+		return true;
+	}
+
+	StatsCollector::instance().incStat( "partialContext" );
+	StatsCollector::instance().incStat( "partialCpu" );
+
 	struct hvm_hw_cpu hwCpu;
 
 	if ( xc_domain_hvm_getcontext_partial( xci_, domain_, HVM_SAVE_CODE( CPU ), vcpu, &hwCpu, sizeof( hwCpu ) ) !=
 	     0 ) {
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_hvm_getcontext_partial() failed: " ) +
-			                   strerror( errno ) );
+
+		if ( logHelper_ ) {
+			std::stringstream ss;
+			ss << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu << ") failed: " << strerror( errno );
+
+			int savedErrno = errno;
+			logHelper_->error( ss.str() );
+
+			EventHandler *h = handler();
+
+			if ( savedErrno == EINVAL && h )
+				h->handleFatalError();
+		}
 
 		return false;
 	}
@@ -435,6 +467,11 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const throw()
 			break;
 	}
 
+	if ( regsCache_.vcpu_ == static_cast<int>( vcpu ) ) {
+		regsCache_.registers_ = regs;
+		regsCache_.valid_ = true;
+	}
+
 	return true;
 }
 
@@ -442,11 +479,17 @@ bool XenDriver::mtrrs( unsigned short vcpu, Mtrrs &m ) const throw()
 {
 	struct hvm_hw_mtrr hwMtrr;
 
+	StatsCollector::instance().incStat( "partialContext" );
+	StatsCollector::instance().incStat( "partialMtrr" );
+
 	if ( xc_domain_hvm_getcontext_partial( xci_, domain_, HVM_SAVE_CODE( MTRR ), vcpu, &hwMtrr,
 	                                       sizeof( hwMtrr ) ) != 0 ) {
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_hvm_getcontext_partial() failed: " ) +
-			                   strerror( errno ) );
+		if ( logHelper_ ) {
+			std::stringstream ss;
+			ss << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu << ") failed: " << strerror( errno );
+
+			logHelper_->error( ss.str() );
+		}
 
 		return false;
 	}
@@ -460,7 +503,11 @@ bool XenDriver::mtrrs( unsigned short vcpu, Mtrrs &m ) const throw()
 
 bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool setEip ) throw()
 {
+	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
+
 	vcpu_guest_context_any_t ctxt;
+
+	StatsCollector::instance().incStat( "xcGetVcpuContext" );
 
 	if ( xc_vcpu_getcontext( xci_, domain_, vcpu, &ctxt ) != 0 ) {
 
@@ -480,9 +527,11 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 		ctxt.x32.user_regs.ebp = regs.rbp;
 		ctxt.x32.user_regs.esi = regs.rsi;
 		ctxt.x32.user_regs.edi = regs.rdi;
+		ctxt.x32.user_regs.eflags = regs.rflags;
 
 		if ( setEip )
 			ctxt.x32.user_regs.eip = regs.rip;
+
 	} else {
 
 		ctxt.x64.user_regs.rax = regs.rax;
@@ -501,10 +550,13 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 		ctxt.x64.user_regs.r13 = regs.r13;
 		ctxt.x64.user_regs.r14 = regs.r14;
 		ctxt.x64.user_regs.r15 = regs.r15;
+		ctxt.x64.user_regs.rflags = regs.rflags;
 
 		if ( setEip )
 			ctxt.x64.user_regs.eip = regs.rip;
 	}
+
+	StatsCollector::instance().incStat( "xcSetContext" );
 
 	if ( xc_vcpu_setcontext( xci_, domain_, vcpu, &ctxt ) == -1 ) {
 
@@ -514,6 +566,31 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 		return false;
 	}
 
+	if ( regsCache_.valid_ && regsCache_.vcpu_ == static_cast<int>( vcpu ) ) {
+		regsCache_.registers_.rax = regs.rax;
+		regsCache_.registers_.rcx = regs.rcx;
+		regsCache_.registers_.rdx = regs.rdx;
+		regsCache_.registers_.rbx = regs.rbx;
+		regsCache_.registers_.rsp = regs.rsp;
+		regsCache_.registers_.rbp = regs.rbp;
+		regsCache_.registers_.rsi = regs.rsi;
+		regsCache_.registers_.rdi = regs.rdi;
+
+		regsCache_.registers_.r8 = regs.r8;
+		regsCache_.registers_.r9 = regs.r9;
+		regsCache_.registers_.r10 = regs.r10;
+		regsCache_.registers_.r11 = regs.r11;
+		regsCache_.registers_.r12 = regs.r12;
+		regsCache_.registers_.r13 = regs.r13;
+		regsCache_.registers_.r14 = regs.r14;
+		regsCache_.registers_.r15 = regs.r15;
+
+		regsCache_.registers_.rflags = regs.rflags;
+
+		if ( setEip )
+			regsCache_.registers_.rip = regs.rip;
+	}
+
 	return true;
 }
 
@@ -521,6 +598,8 @@ bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, si
 {
 	unsigned long gfn = paddr_to_pfn( address );
 	unsigned long mfn = paddr_to_pfn( ( unsigned long )buffer );
+
+	StatsCollector::instance().incStat( "xcCopyPage" );
 
 	// Copy the whole page - can't find another way to do it with libxc.
 	if ( xc_copy_to_domain_page( xci_, domain_, gfn, ( const char * )mfn ) ) {
@@ -595,6 +674,8 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 
 	xc_dominfo_t info;
 
+	StatsCollector::instance().incStat( "xcDomainInfo" );
+
 	if ( xc_domain_getinfo( xci_, domain, 1, &info ) != 1 ) {
 		cleanup();
 		throw std::runtime_error( "xc_domain_getinfo() failed" );
@@ -610,7 +691,7 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 
 	xen_capabilities_info_t caps;
 
-	if ( xc_version( xci_, XENVER_capabilities, &caps ) != 0 ) {
+	if ( xc_version( xci_, XENVER_capabilities, &caps /*, sizeof( caps ) */ ) != 0 ) {
 		cleanup();
 		throw std::runtime_error( "Could not get Xen capabilities" );
 	}
@@ -757,6 +838,8 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 		void *mapped = NULL;
 
 #ifdef DISABLE_PAGE_CACHE
+		StatsCollector::instance().incStat( "xcMapPage" );
+
 		mapped = xc_map_foreign_range( xci_, domain_, XC_PAGE_SIZE, PROT_READ | PROT_WRITE, gfn );
 
 		/*
@@ -836,7 +919,7 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
 
 			if ( gfn == 0 ) {
 
-				if ( logHelper_ ) {
+				if ( logHelper_ && errno && errno != EADDRNOTAVAIL ) {
 					std::stringstream ss;
 
 					ss << "xc_translate_foreign_address(0x" << std::setfill( '0' )
@@ -853,6 +936,8 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
 		void *mapped = NULL;
 
 #ifdef DISABLE_PAGE_CACHE
+		StatsCollector::instance().incStat( "xcMapPage" );
+
 		mapped = xc_map_foreign_range( xci_, domain_, XC_PAGE_SIZE, PROT_READ | PROT_WRITE, gfn );
 
 		if ( mapped && !check_page( mapped ) ) {
@@ -897,7 +982,7 @@ bool XenDriver::cacheGuestVirtAddr( unsigned long long address ) throw()
 	unsigned long gfn = xc_translate_foreign_address( xci_, domain_, 0, address );
 
 	if ( gfn == 0 ) {
-		if ( logHelper_ )
+		if ( logHelper_ && errno && errno != EADDRNOTAVAIL )
 			logHelper_->error( std::string( "xc_translate_foreign_address() failed: " ) +
 			                   strerror( errno ) );
 
@@ -970,6 +1055,23 @@ bool XenDriver::unpause() throw()
 
 		return false;
 	}
+
+	update_ = true;
+
+	return true;
+}
+
+bool XenDriver::update() throw()
+{
+	if ( !update_ )
+		return true;
+
+	std::stringstream ss;
+	ss << "/local/domain/" << domain_ << "/data/updated";
+
+	xs_write( xsh_, XBT_NULL, ss.str().c_str(), "now", 3 );
+
+	update_ = false;
 
 	return true;
 }
@@ -1143,6 +1245,20 @@ bool XenDriver::isVarMtrrOverlapped( const struct hvm_hw_mtrr &hwMtrr ) const
 	}
 
 	return false;
+}
+
+void XenDriver::enableCache( unsigned short vcpu )
+{
+	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
+	regsCache_.vcpu_ = vcpu;
+	regsCache_.valid_ = false;
+}
+
+void XenDriver::disableCache()
+{
+	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
+	regsCache_.vcpu_ = -1;
+	regsCache_.valid_ = false;
 }
 
 } // namespace bdvmi

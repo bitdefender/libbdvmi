@@ -124,7 +124,7 @@ LTLIBRARIES = $(lib_LTLIBRARIES)
 libbdvmi_la_LIBADD =
 am_libbdvmi_la_OBJECTS = bdvmibackendfactory.lo bdvmidomainwatcher.lo \
 	bdvmixencache.lo bdvmixendomainwatcher.lo bdvmixendriver.lo \
-	bdvmixeneventmanager.lo
+	bdvmixeneventmanager.lo bdvmistatscollector.lo
 libbdvmi_la_OBJECTS = $(am_libbdvmi_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -314,7 +314,8 @@ AM_CPPFLAGS = -I$(top_srcdir)/include
 lib_LTLIBRARIES = libbdvmi.la
 libbdvmi_la_SOURCES = bdvmibackendfactory.cpp bdvmidomainwatcher.cpp \
     bdvmixencache.cpp bdvmixendomainwatcher.cpp \
-    bdvmixendriver.cpp  bdvmixeneventmanager.cpp
+    bdvmixendriver.cpp  bdvmixeneventmanager.cpp \
+    bdvmistatscollector.cpp
 
 all: all-am
 
@@ -397,6 +398,7 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmibackendfactory.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmidomainwatcher.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmistatscollector.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixencache.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixendomainwatcher.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixendriver.Plo@am__quote@

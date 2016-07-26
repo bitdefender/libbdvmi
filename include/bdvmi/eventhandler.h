@@ -59,8 +59,12 @@ public:
 	// then this has _not_ happened because the guest shut down or has been forcefully terminated).
 	virtual void handleSessionOver( bool guestStillRunning ) = 0;
 
+	virtual void handleFatalError() = 0;
+
 	// Useful for reloading configuration, checking state, etc.
 	virtual void runPreEvent() = 0;
+
+	virtual void runPostEvent() = 0;
 };
 
 } // namespace bdvmi

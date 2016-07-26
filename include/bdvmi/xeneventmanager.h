@@ -45,7 +45,7 @@ class LogHelper;
 class XenEventManager : public EventManager {
 
 public:
-	XenEventManager( const XenDriver &driver, unsigned short handlerFlags, LogHelper *logHelper,
+	XenEventManager( XenDriver &driver, unsigned short handlerFlags, LogHelper *logHelper,
 	                 bool useAltP2m = false );
 
 	virtual ~XenEventManager();
@@ -64,6 +64,10 @@ public:
 	// Stop the event loop
 	virtual void stop();
 
+	virtual bool enableMsrEvents( unsigned int msr );
+
+	virtual bool disableMsrEvents( unsigned int msr );
+
 private:
 	void initXenStore();
 
@@ -79,7 +83,7 @@ private:
 
 	void putResponse( vm_event_response_t *rsp );
 
-	void resumePage( vm_event_response_t *rsp );
+	void resumePage();
 
 	std::string uuid();
 
@@ -93,7 +97,7 @@ private:
 	XenEventManager &operator=( const XenEventManager & );
 
 private:
-	const XenDriver &driver_;
+	XenDriver &driver_;
 	xc_interface *xci_;
 	domid_t domain_;
 	bool stop_;
@@ -104,7 +108,7 @@ private:
 	vm_event_back_ring_t backRing_;
 	void *ringPage_;
 	std::string watchToken_;
-	std::string xenServerWatchPath_;
+	std::string controlXenStorePath_;
 	bool memAccessOn_;
 	bool evtchnOn_;
 	bool evtchnBindOn_;
