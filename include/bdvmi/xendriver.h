@@ -70,69 +70,69 @@ public:
 	virtual ~XenDriver();
 
 public:
-	virtual bool cpuCount( unsigned int &count ) const throw();
+	virtual bool cpuCount( unsigned int &count ) const;
 
-	virtual bool tscSpeed( unsigned long long &speed ) const throw();
+	virtual bool tscSpeed( unsigned long long &speed ) const;
 
-	virtual bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const throw();
+	virtual bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const;
 
-	virtual bool setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute ) throw();
+	virtual bool setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute );
 
-	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) throw();
+	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute );
 
-	virtual bool registers( unsigned short vcpu, Registers &regs ) const throw();
+	virtual bool registers( unsigned short vcpu, Registers &regs ) const;
 
-	virtual bool mtrrs( unsigned short vcpu, Mtrrs &m ) const throw();
+	virtual bool mtrrs( unsigned short vcpu, Mtrrs &m ) const;
 
-	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) throw();
+	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay );
 
-	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length ) throw();
+	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length );
 
-	virtual bool enableMsrExit( unsigned int msr, bool &oldValue ) throw();
+	virtual bool enableMsrExit( unsigned int msr, bool &oldValue );
 
-	virtual bool disableMsrExit( unsigned int msr, bool &oldValue ) throw();
+	virtual bool disableMsrExit( unsigned int msr, bool &oldValue );
 
-	virtual bool isMsrEnabled( unsigned int msr, bool &enabled ) const throw()
+	virtual bool isMsrEnabled( unsigned int msr, bool &enabled ) const
 	{
 		enabled = msrs_.find( msr ) != msrs_.end();
 		return true;
 	}
 
 	virtual MapReturnCode mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags,
-	                                        void *&pointer ) throw();
+	                                        void *&pointer );
 
-	virtual bool unmapPhysMem( void *hostPtr ) throw();
+	virtual bool unmapPhysMem( void *hostPtr );
 
 	virtual MapReturnCode mapVirtMemToHost( unsigned long long address, size_t length, uint32_t flags,
-	                                        unsigned short vcpu, void *&pointer ) throw();
+	                                        unsigned short vcpu, void *&pointer );
 
-	virtual bool unmapVirtMem( void *hostPtr ) throw();
+	virtual bool unmapVirtMem( void *hostPtr );
 
-	virtual bool cacheGuestVirtAddr( unsigned long long addr ) throw();
+	virtual bool cacheGuestVirtAddr( unsigned long long addr );
 
 	virtual bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
-	                               uint32_t errorCode ) throw();
+	                               uint32_t errorCode );
 
-	virtual bool disableRepOptimizations() throw();
+	virtual bool disableRepOptimizations();
 
-	virtual bool shutdown() throw();
+	virtual bool shutdown();
 
-	virtual bool pause() throw();
+	virtual bool pause();
 
-	virtual bool unpause() throw();
+	virtual bool unpause();
 
-	virtual bool setPageCacheLimit( size_t limit ) throw();
+	virtual bool setPageCacheLimit( size_t limit );
 
-	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw();
+	virtual bool getXSAVESize( unsigned short vcpu, size_t &size );
 
-	virtual bool update() throw();
+	virtual bool update();
 
-	virtual std::string uuid() const throw()
+	virtual std::string uuid() const
 	{
 		return uuid_;
 	}
 
-	virtual unsigned int id() const throw()
+	virtual unsigned int id() const
 	{
 		return domain_;
 	}

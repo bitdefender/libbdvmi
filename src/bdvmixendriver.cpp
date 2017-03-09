@@ -112,7 +112,7 @@ int32_t XenDriver::guestX86Mode( const Registers &regs )
 	return ( ( regs.cs_arbytes & CS_AR_BYTES_D ) ? 4 : 2 );
 }
 
-bool XenDriver::cpuCount( unsigned int &count ) const throw()
+bool XenDriver::cpuCount( unsigned int &count ) const
 {
 	xc_dominfo_t info;
 
@@ -132,7 +132,7 @@ bool XenDriver::cpuCount( unsigned int &count ) const throw()
 	return true;
 }
 
-bool XenDriver::tscSpeed( unsigned long long &speed ) const throw()
+bool XenDriver::tscSpeed( unsigned long long &speed ) const
 {
 	uint64_t elapsed_nsec;
 	uint32_t tsc_mode, gtsc_khz, incarnation;
@@ -151,7 +151,7 @@ bool XenDriver::tscSpeed( unsigned long long &speed ) const throw()
 	return true;
 }
 
-bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const throw()
+bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 {
 	const uint8_t MTRR_TYPE_UNCACHABLE = 0;
 	const uint8_t MTRR_TYPE_WRTHROUGH = 4;
@@ -255,7 +255,7 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 	return true;
 }
 
-bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute ) throw()
+bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute )
 {
 	xenmem_access_t memaccess = XENMEM_access_n;
 
@@ -353,7 +353,6 @@ void XenDriver::flushPageProtections()
 }
 
 bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
-        throw()
 {
 	bool cached = false;
 	xenmem_access_t memaccess;
@@ -430,7 +429,7 @@ bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, 
 	return true;
 }
 
-bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const throw()
+bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 {
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
 
@@ -571,7 +570,7 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const throw()
 	return true;
 }
 
-bool XenDriver::mtrrs( unsigned short vcpu, Mtrrs &m ) const throw()
+bool XenDriver::mtrrs( unsigned short vcpu, Mtrrs &m ) const
 {
 	struct hvm_hw_mtrr hwMtrr;
 
@@ -597,7 +596,7 @@ bool XenDriver::mtrrs( unsigned short vcpu, Mtrrs &m ) const throw()
 	return true;
 }
 
-bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) throw()
+bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay )
 {
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
 
@@ -700,7 +699,7 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 	return true;
 }
 
-bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, size_t /*length*/ ) throw()
+bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, size_t /*length*/ )
 {
 	unsigned long gfn = paddr_to_pfn( address );
 	unsigned long mfn = paddr_to_pfn( ( unsigned long )buffer );
@@ -719,7 +718,7 @@ bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, si
 	return true;
 }
 
-bool XenDriver::enableMsrExit( unsigned int msr, bool &oldValue ) throw()
+bool XenDriver::enableMsrExit( unsigned int msr, bool &oldValue )
 {
 	oldValue = false;
 
@@ -738,7 +737,7 @@ bool XenDriver::enableMsrExit( unsigned int msr, bool &oldValue ) throw()
 	return true;
 }
 
-bool XenDriver::disableMsrExit( unsigned int msr, bool &oldValue ) throw()
+bool XenDriver::disableMsrExit( unsigned int msr, bool &oldValue )
 {
 	oldValue = false;
 
@@ -756,7 +755,7 @@ bool XenDriver::disableMsrExit( unsigned int msr, bool &oldValue ) throw()
 	return true;
 }
 
-bool XenDriver::shutdown() throw()
+bool XenDriver::shutdown()
 {
 	if ( xc_domain_shutdown( xci_, domain_, SHUTDOWN_poweroff ) ) {
 
@@ -934,7 +933,7 @@ domid_t XenDriver::getDomainId( const std::string &domainName )
 }
 
 MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t length, uint32_t /*flags*/,
-                                           void *&pointer ) throw()
+                                           void *&pointer )
 {
 	// one-page limit
 	if ( ( address & XC_PAGE_MASK ) != ( ( address + length - 1 ) & XC_PAGE_MASK ) )
@@ -995,7 +994,7 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 	return MAP_SUCCESS;
 }
 
-bool XenDriver::unmapPhysMem( void *hostPtr ) throw()
+bool XenDriver::unmapPhysMem( void *hostPtr )
 {
 	void *map = hostPtr;
 	map = ( void * )( ( long int )map & XC_PAGE_MASK );
@@ -1010,7 +1009,7 @@ bool XenDriver::unmapPhysMem( void *hostPtr ) throw()
 }
 
 MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t length, uint32_t /* flags */,
-                                           unsigned short vcpu, void *&pointer ) throw()
+                                           unsigned short vcpu, void *&pointer )
 {
 	// one-page limit
 	if ( ( address & XC_PAGE_MASK ) != ( ( address + length - 1 ) & XC_PAGE_MASK ) )
@@ -1082,12 +1081,12 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
 	return MAP_SUCCESS;
 }
 
-bool XenDriver::unmapVirtMem( void *hostPtr ) throw()
+bool XenDriver::unmapVirtMem( void *hostPtr )
 {
 	return unmapPhysMem( hostPtr );
 }
 
-bool XenDriver::cacheGuestVirtAddr( unsigned long long address ) throw()
+bool XenDriver::cacheGuestVirtAddr( unsigned long long address )
 {
 	unsigned long gfn = xc_translate_foreign_address( xci_, domain_, 0, address );
 
@@ -1109,7 +1108,7 @@ bool XenDriver::cacheGuestVirtAddr( unsigned long long address ) throw()
 }
 
 bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_t virtualAddress,
-                                  uint32_t errorCode ) throw()
+                                  uint32_t errorCode )
 {
 	// It is assumed that the guest is in user-mode and in the proper
 	// address space for "vcpu" here - otherwise things will likely
@@ -1128,7 +1127,7 @@ bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_
 	return true;
 }
 
-bool XenDriver::disableRepOptimizations() throw()
+bool XenDriver::disableRepOptimizations()
 {
 #ifdef XEN_DOMCTL_MONITOR_OP_EMULATE_EACH_REP
 	if ( xc_monitor_emulate_each_rep( xci_, domain_, 1 ) != 0 ) {
@@ -1145,7 +1144,7 @@ bool XenDriver::disableRepOptimizations() throw()
 #endif
 }
 
-bool XenDriver::pause() throw()
+bool XenDriver::pause()
 {
 	if ( xc_domain_pause( xci_, domain_ ) != 0 ) {
 
@@ -1158,7 +1157,7 @@ bool XenDriver::pause() throw()
 	return true;
 }
 
-bool XenDriver::unpause() throw()
+bool XenDriver::unpause()
 {
 	if ( xc_domain_unpause( xci_, domain_ ) != 0 ) {
 
@@ -1173,7 +1172,7 @@ bool XenDriver::unpause() throw()
 	return true;
 }
 
-bool XenDriver::update() throw()
+bool XenDriver::update()
 {
 	if ( !update_ )
 		return true;
@@ -1188,7 +1187,7 @@ bool XenDriver::update() throw()
 	return true;
 }
 
-bool XenDriver::setPageCacheLimit( size_t limit ) throw()
+bool XenDriver::setPageCacheLimit( size_t limit )
 {
 	return pageCache_.setLimit( limit );
 }
@@ -1248,7 +1247,7 @@ bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
 #define XCR0_X87 0x00000001 /* x87 FPU/MMX state */
 #define XCR0_SSE 0x00000002 /* SSE state */
 
-bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size ) throw()
+bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size )
 {
 	uint64_t featureMask = 0;
 	unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;

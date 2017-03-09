@@ -113,13 +113,6 @@ enum MapReturnCode { MAP_SUCCESS, MAP_FAILED_GENERIC, MAP_PAGE_NOT_PRESENT, MAP_
 
 class EventHandler;
 
-/*
- * The functions a driver implements are not allowed to throw exceptions,
- * because they will be called from ms_abi (WINAPI) functions, and GCC
- * has issues with that: http://gcc.gnu.org/bugzilla/show_bug.cgi?id=49146
- *
- * Hence, the throw() guarantee.
- */
 class Driver {
 
 public:
@@ -145,75 +138,74 @@ public:
 
 public:
 	// Get VCPU count
-	virtual bool cpuCount( unsigned int &count ) const throw() = 0;
+	virtual bool cpuCount( unsigned int &count ) const = 0;
 
 	// Get TSC speed
-	virtual bool tscSpeed( unsigned long long &speed ) const throw() = 0;
+	virtual bool tscSpeed( unsigned long long &speed ) const = 0;
 
 	// Get MTRR type for guestAddress
-	virtual bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const throw() = 0;
+	virtual bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const = 0;
 
 	// Set guest page protection
 	virtual bool setPageProtection( unsigned long long guestAddress, bool read, bool write,
-	                                bool execute ) throw() = 0;
+	                                bool execute ) = 0;
 
 	// Get guest page protection
-	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
-	                                throw() = 0;
+	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) = 0;
 
 	// Get registers
-	virtual bool registers( unsigned short vcpu, Registers &regs ) const throw() = 0;
+	virtual bool registers( unsigned short vcpu, Registers &regs ) const = 0;
 
 	// Get Mtrrs
-	virtual bool mtrrs( unsigned short vcpu, Mtrrs &m ) const throw() = 0;
+	virtual bool mtrrs( unsigned short vcpu, Mtrrs &m ) const = 0;
 
 	// Set registers
-	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) throw() = 0;
+	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) = 0;
 
 	// Write to physical address
-	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length ) throw() = 0;
+	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length ) = 0;
 
 	// Enable monitoring for changes at this MSR address
-	virtual bool enableMsrExit( unsigned int msr, bool &oldValue ) throw() = 0;
+	virtual bool enableMsrExit( unsigned int msr, bool &oldValue ) = 0;
 
 	// Disable monitoring for changes at this MSR address
-	virtual bool disableMsrExit( unsigned int msr, bool &oldValue ) throw() = 0;
+	virtual bool disableMsrExit( unsigned int msr, bool &oldValue ) = 0;
 
 	// Should we have the introengine look at this MSR address?
-	virtual bool isMsrEnabled( unsigned int msr, bool &enabled ) const throw() = 0;
+	virtual bool isMsrEnabled( unsigned int msr, bool &enabled ) const = 0;
 
 	virtual MapReturnCode mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags,
-	                                        void *&pointer ) throw() = 0;
+	                                        void *&pointer ) = 0;
 
-	virtual bool unmapPhysMem( void *hostPtr ) throw() = 0;
+	virtual bool unmapPhysMem( void *hostPtr ) = 0;
 
 	virtual MapReturnCode mapVirtMemToHost( unsigned long long address, size_t length, uint32_t flags,
-	                                        unsigned short vcpu, void *&pointer ) throw() = 0;
+	                                        unsigned short vcpu, void *&pointer ) = 0;
 
-	virtual bool cacheGuestVirtAddr( unsigned long long addr ) throw() = 0;
+	virtual bool cacheGuestVirtAddr( unsigned long long addr ) = 0;
 
-	virtual bool unmapVirtMem( void *hostPtr ) throw() = 0;
+	virtual bool unmapVirtMem( void *hostPtr ) = 0;
 
 	virtual bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
-	                               uint32_t errorCode ) throw() = 0;
+	                               uint32_t errorCode ) = 0;
 
-	virtual bool disableRepOptimizations() throw() = 0;
+	virtual bool disableRepOptimizations() = 0;
 
-	virtual bool shutdown() throw() = 0;
+	virtual bool shutdown() = 0;
 
-	virtual bool pause() throw() = 0;
+	virtual bool pause() = 0;
 
-	virtual bool unpause() throw() = 0;
+	virtual bool unpause() = 0;
 
-	virtual bool setPageCacheLimit( size_t limit ) throw() = 0;
+	virtual bool setPageCacheLimit( size_t limit ) = 0;
 
-	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) throw() = 0;
+	virtual bool getXSAVESize( unsigned short vcpu, size_t &size ) = 0;
 
-	virtual bool update() throw() = 0;
+	virtual bool update() = 0;
 
-	virtual std::string uuid() const throw() = 0;
+	virtual std::string uuid() const = 0;
 
-	virtual unsigned int id() const throw() = 0;
+	virtual unsigned int id() const = 0;
 
 	virtual void enableCache( unsigned short vcpu ) = 0;
 
