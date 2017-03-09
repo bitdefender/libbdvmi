@@ -311,13 +311,18 @@ bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, b
 		memAccessCache_[gfn] = memaccess;
 
 		if ( !useAltP2m_ ) {
-#ifdef HVMOP_altp2m_set_mem_access_multi
+#ifdef XENMEM_access_op_set_access_multi
 			delayedMemAccessWrite_[gfn] = memaccess;
 #else
 			xc_set_mem_access( xci_, domain_, memaccess, gfn, 1 );
 #endif
-		} else
+		} else {
+#ifdef HVMOP_altp2m_set_mem_access_multi
+			delayedMemAccessWrite_[gfn] = memaccess;
+#else
 			xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, memaccess );
+#endif
+		}
 	}
 
 	return true;
@@ -325,7 +330,6 @@ bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, b
 
 void XenDriver::flushPageProtections()
 {
-#ifdef HVMOP_altp2m_set_mem_access_multi
 	int rc = 0;
 
 	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
@@ -343,13 +347,20 @@ void XenDriver::flushPageProtections()
 
 	StatsCollector::instance().incStat( "xcSetMemAccessMulti" );
 
-	rc = xc_set_mem_access_multi( xci_, domain_, &access[0], &gfns[0], gfns.size() );
+	if ( !useAltP2m_ ) {
+#ifdef XENMEM_access_op_set_access_multi
+		rc = xc_set_mem_access_multi( xci_, domain_, &access[0], &gfns[0], gfns.size() );
+#endif
+	} else {
+#ifdef HVMOP_altp2m_set_mem_access_multi
+		rc = xc_altp2m_set_mem_access_multi( xci_, domain_, altp2mViewId_, &access[0], &gfns[0], gfns.size() );
+#endif
+	}
 
 	if ( rc && logHelper_ )
 		logHelper_->error( std::string( "xc_set_mem_access_multi() failed: " ) + strerror( errno ) );
 
 	delayedMemAccessWrite_.clear();
-#endif
 }
 
 bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
