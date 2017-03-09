@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 #include <sys/mman.h>
@@ -75,14 +76,16 @@ static bool check_page( void *addr )
 
 XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
     : xci_( NULL ), xsh_( NULL ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
-      useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false )
+      useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false ), xenVersionMajor_( 0 ), xenVersionMinor_( 0 ),
+      startTime_( -1 )
 {
 	init( domain, hvmOnly );
 }
 
 XenDriver::XenDriver( const std::string &domainName, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
     : xci_( NULL ), xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
-      useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false )
+      useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false ), xenVersionMajor_( 0 ), xenVersionMinor_( 0 ),
+      startTime_( -1 )
 {
 	domain_ = getDomainId( domainName );
 	init( domain_, hvmOnly );
@@ -256,6 +259,29 @@ bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, b
 {
 	xenmem_access_t memaccess = XENMEM_access_n;
 
+	/*
+	 * The Intel SDM says:
+	 *
+	 * AN EPT misconfiguration occurs if any of the following is identified while translating
+	 * a guest-physical address:
+	 *
+	 * * The value of bits 2:0 of an EPT paging-structure entry is either 010b (write-only)
+	 *   or 110b (write/execute).
+	 *
+	 */
+	if ( write && !read ) {
+		if ( logHelper_ ) {
+			std::stringstream ss;
+			ss << "Attempted to set GPA " << std::hex << std::showbase << guestAddress
+				<< " " << ( read ? "r" : "-" ) << ( write ? "w" : "-" )
+				<< ( execute ? "x" : "-" );
+
+			logHelper_->error( ss.str() );
+		}
+
+		return false;
+	}
+
 	if ( read && !write && !execute )
 		memaccess = XENMEM_access_r;
 
@@ -279,40 +305,80 @@ bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, b
 
 	unsigned long gfn = paddr_to_pfn( guestAddress );
 
-	int rc = 0;
+	{
+		std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
 
-	StatsCollector::instance().incStat( "xcSetMemAccess" );
+		memAccessCache_[gfn] = memaccess;
 
-	if ( useAltP2m_ )
-		rc = xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, memaccess );
-	else
-		rc = xc_set_mem_access( xci_, domain_, memaccess, gfn, 1 );
-
-	if ( rc ) {
-
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_set_mem_access() failed: " ) + strerror( errno ) );
-
-		return false;
+		if ( !useAltP2m_ ) {
+#ifdef HVMOP_altp2m_set_mem_access_multi
+			delayedMemAccessWrite_[gfn] = memaccess;
+#else
+			xc_set_mem_access( xci_, domain_, memaccess, gfn, 1 );
+#endif
+		} else
+			xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, memaccess );
 	}
 
 	return true;
 }
 
-bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) const
+void XenDriver::flushPageProtections()
+{
+#ifdef HVMOP_altp2m_set_mem_access_multi
+	int rc = 0;
+
+	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
+
+	if ( delayedMemAccessWrite_.empty() )
+		return;
+
+	std::vector<uint8_t> access;
+	std::vector<uint64_t> gfns;
+
+	for ( auto &&item : delayedMemAccessWrite_ ) {
+		access.push_back( item.second );
+		gfns.push_back( item.first );
+	}
+
+	StatsCollector::instance().incStat( "xcSetMemAccessMulti" );
+
+	rc = xc_set_mem_access_multi( xci_, domain_, &access[0], &gfns[0], gfns.size() );
+
+	if ( rc && logHelper_ )
+		logHelper_->error( std::string( "xc_set_mem_access_multi() failed: " ) + strerror( errno ) );
+
+	delayedMemAccessWrite_.clear();
+#endif
+}
+
+bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
         throw()
 {
+	bool cached = false;
 	xenmem_access_t memaccess;
 	unsigned long gfn = paddr_to_pfn( guestAddress );
 
-	StatsCollector::instance().incStat( "xcGetMemAccess" );
+	{
+		std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
 
-	if ( xc_get_mem_access( xci_, domain_, gfn, &memaccess ) ) {
+		auto it = memAccessCache_.find( gfn );
+		if ( it != memAccessCache_.end() ) {
+			memaccess = it->second;
+			cached = true;
+		}
+	}
 
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_get_mem_access() failed: " ) + strerror( errno ) );
+	if ( !cached ) {
+		StatsCollector::instance().incStat( "xcGetMemAccess" );
 
-		return false;
+		if ( xc_get_mem_access( xci_, domain_, gfn, &memaccess ) ) {
+
+			if ( logHelper_ )
+				logHelper_->error( std::string( "xc_get_mem_access() failed: " ) + strerror( errno ) );
+
+			return false;
+		}
 	}
 
 	read = write = execute = false;
@@ -353,6 +419,12 @@ bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, 
 		case XENMEM_access_n:
 		default:
 			break;
+	}
+
+	if ( !cached ) {
+		std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
+
+		memAccessCache_[gfn] = memaccess;
 	}
 
 	return true;
@@ -468,6 +540,30 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const throw()
 	}
 
 	if ( regsCache_.vcpu_ == static_cast<int>( vcpu ) ) {
+
+		if ( delayedWrite_.pending_ ) {
+			regs.rax = delayedWrite_.registers_.rax;
+			regs.rcx = delayedWrite_.registers_.rcx;
+			regs.rdx = delayedWrite_.registers_.rdx;
+			regs.rbx = delayedWrite_.registers_.rbx;
+			regs.rsp = delayedWrite_.registers_.rsp;
+			regs.rbp = delayedWrite_.registers_.rbp;
+			regs.rsi = delayedWrite_.registers_.rsi;
+			regs.rdi = delayedWrite_.registers_.rdi;
+
+			regs.r8 = delayedWrite_.registers_.r8;
+			regs.r9 = delayedWrite_.registers_.r9;
+			regs.r10 = delayedWrite_.registers_.r10;
+			regs.r11 = delayedWrite_.registers_.r11;
+			regs.r12 = delayedWrite_.registers_.r12;
+			regs.r13 = delayedWrite_.registers_.r13;
+			regs.r14 = delayedWrite_.registers_.r14;
+			regs.r15 = delayedWrite_.registers_.r15;
+
+			regs.rflags = delayedWrite_.registers_.rflags;
+			regs.rip = delayedWrite_.registers_.rip;
+		}
+
 		regsCache_.registers_ = regs;
 		regsCache_.valid_ = true;
 	}
@@ -501,69 +597,79 @@ bool XenDriver::mtrrs( unsigned short vcpu, Mtrrs &m ) const throw()
 	return true;
 }
 
-bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool setEip ) throw()
+bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) throw()
 {
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
 
-	vcpu_guest_context_any_t ctxt;
+	if ( !delay ) {
+		vcpu_guest_context_any_t ctxt;
 
-	StatsCollector::instance().incStat( "xcGetVcpuContext" );
+		StatsCollector::instance().incStat( "xcGetVcpuContext" );
 
-	if ( xc_vcpu_getcontext( xci_, domain_, vcpu, &ctxt ) != 0 ) {
+		if ( xc_vcpu_getcontext( xci_, domain_, vcpu, &ctxt ) != 0 ) {
 
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_vcpu_getcontext() failed: " ) + strerror( errno ) );
+			if ( logHelper_ )
+				logHelper_->error( std::string( "xc_vcpu_getcontext() failed: " ) + strerror( errno ) );
 
-		return false;
-	}
+			return false;
+		}
 
-	if ( guestWidth_ == 4 ) {
+		if ( guestWidth_ == 4 ) {
 
-		ctxt.x32.user_regs.eax = regs.rax;
-		ctxt.x32.user_regs.ecx = regs.rcx;
-		ctxt.x32.user_regs.edx = regs.rdx;
-		ctxt.x32.user_regs.ebx = regs.rbx;
-		ctxt.x32.user_regs.esp = regs.rsp;
-		ctxt.x32.user_regs.ebp = regs.rbp;
-		ctxt.x32.user_regs.esi = regs.rsi;
-		ctxt.x32.user_regs.edi = regs.rdi;
-		ctxt.x32.user_regs.eflags = regs.rflags;
+			ctxt.x32.user_regs.eax = regs.rax;
+			ctxt.x32.user_regs.ecx = regs.rcx;
+			ctxt.x32.user_regs.edx = regs.rdx;
+			ctxt.x32.user_regs.ebx = regs.rbx;
+			ctxt.x32.user_regs.esp = regs.rsp;
+			ctxt.x32.user_regs.ebp = regs.rbp;
+			ctxt.x32.user_regs.esi = regs.rsi;
+			ctxt.x32.user_regs.edi = regs.rdi;
+			ctxt.x32.user_regs.eflags = regs.rflags;
 
-		if ( setEip )
-			ctxt.x32.user_regs.eip = regs.rip;
+			if ( setEip )
+				ctxt.x32.user_regs.eip = regs.rip;
 
+		} else {
+
+			ctxt.x64.user_regs.rax = regs.rax;
+			ctxt.x64.user_regs.rcx = regs.rcx;
+			ctxt.x64.user_regs.rdx = regs.rdx;
+			ctxt.x64.user_regs.rbx = regs.rbx;
+			ctxt.x64.user_regs.rsp = regs.rsp;
+			ctxt.x64.user_regs.rbp = regs.rbp;
+			ctxt.x64.user_regs.rsi = regs.rsi;
+			ctxt.x64.user_regs.rdi = regs.rdi;
+			ctxt.x64.user_regs.r8 = regs.r8;
+			ctxt.x64.user_regs.r9 = regs.r9;
+			ctxt.x64.user_regs.r10 = regs.r10;
+			ctxt.x64.user_regs.r11 = regs.r11;
+			ctxt.x64.user_regs.r12 = regs.r12;
+			ctxt.x64.user_regs.r13 = regs.r13;
+			ctxt.x64.user_regs.r14 = regs.r14;
+			ctxt.x64.user_regs.r15 = regs.r15;
+			ctxt.x64.user_regs.rflags = regs.rflags;
+
+			if ( setEip )
+				ctxt.x64.user_regs.eip = regs.rip;
+		}
+
+		StatsCollector::instance().incStat( "xcSetContext" );
+
+		if ( xc_vcpu_setcontext( xci_, domain_, vcpu, &ctxt ) == -1 ) {
+
+			if ( logHelper_ )
+				logHelper_->error( std::string( "xc_vcpu_setcontext() failed: " ) + strerror( errno ) );
+
+			return false;
+		}
 	} else {
+		delayedWrite_.registers_ = regs;
 
-		ctxt.x64.user_regs.rax = regs.rax;
-		ctxt.x64.user_regs.rcx = regs.rcx;
-		ctxt.x64.user_regs.rdx = regs.rdx;
-		ctxt.x64.user_regs.rbx = regs.rbx;
-		ctxt.x64.user_regs.rsp = regs.rsp;
-		ctxt.x64.user_regs.rbp = regs.rbp;
-		ctxt.x64.user_regs.rsi = regs.rsi;
-		ctxt.x64.user_regs.rdi = regs.rdi;
-		ctxt.x64.user_regs.r8 = regs.r8;
-		ctxt.x64.user_regs.r9 = regs.r9;
-		ctxt.x64.user_regs.r10 = regs.r10;
-		ctxt.x64.user_regs.r11 = regs.r11;
-		ctxt.x64.user_regs.r12 = regs.r12;
-		ctxt.x64.user_regs.r13 = regs.r13;
-		ctxt.x64.user_regs.r14 = regs.r14;
-		ctxt.x64.user_regs.r15 = regs.r15;
-		ctxt.x64.user_regs.rflags = regs.rflags;
+		if ( !setEip )
+			delayedWrite_.registers_.rip = regs.rip + 3; // 3 is the size of the VMCALL opcodes
+				// ( ( guestWidth_ == 4 ) ? ctxt.x32.user_regs.eip : ctxt.x64.user_regs.eip );
 
-		if ( setEip )
-			ctxt.x64.user_regs.eip = regs.rip;
-	}
-
-	StatsCollector::instance().incStat( "xcSetContext" );
-
-	if ( xc_vcpu_setcontext( xci_, domain_, vcpu, &ctxt ) == -1 ) {
-
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_vcpu_setcontext() failed: " ) + strerror( errno ) );
-
-		return false;
+		delayedWrite_.pending_ = true;
 	}
 
 	if ( regsCache_.valid_ && regsCache_.vcpu_ == static_cast<int>( vcpu ) ) {
@@ -669,7 +775,7 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 
 	if ( !xci_ ) {
 		cleanup();
-		throw std::runtime_error( "xc_interface_init() failed" );
+		throw std::runtime_error( "xc_interface_open() failed" );
 	}
 
 	xc_dominfo_t info;
@@ -695,6 +801,10 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 		cleanup();
 		throw std::runtime_error( "Could not get Xen capabilities" );
 	}
+
+	long xenVersion = xc_version( xci_, XENVER_version, NULL );
+	xenVersionMajor_ = xenVersion >> 16;
+	xenVersionMinor_ = xenVersion & 0xFF;
 
 	guestWidth_ = strstr( caps, "x86_64" ) ? 8 : 4;
 
@@ -1013,6 +1123,8 @@ bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_
 		return false;
 	}
 
+	pendingInjections_[vcpu] = true;
+
 	return true;
 }
 
@@ -1259,6 +1371,68 @@ void XenDriver::disableCache()
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
 	regsCache_.vcpu_ = -1;
 	regsCache_.valid_ = false;
+}
+
+bool XenDriver::pendingInjection( unsigned short vcpu ) const
+{
+	auto i = pendingInjections_.find( vcpu );
+
+	if ( i == pendingInjections_.end() )
+		return false;
+
+	return i->second;
+}
+
+void XenDriver::clearInjection( unsigned short vcpu )
+{
+	pendingInjections_[vcpu] = false;
+}
+
+uint32_t XenDriver::startTime()
+{
+	if ( startTime_ != ( uint32_t )-1 )
+		return startTime_;
+
+	unsigned int size = 0;
+	std::stringstream ss;
+
+	ss << "/local/domain/" << domain_ << "/vm";
+
+	char *path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), &size, 1 ) );
+
+	if ( path && path[0] != '\0' ) {
+		ss.str( "" );
+		ss << path << "/start_time";
+
+		std::string path1 = ss.str();
+
+		ss.str( "" );
+		ss << path << "/domains/" << domain_ << "/create-time";
+
+		std::string path2 = ss.str();
+
+		free( path );
+		size = 0;
+
+		path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, path1.c_str(), &size, 1 ) );
+
+		if ( path  && path[0] != '\0' )
+			startTime_ = strtoul( path, NULL, 10 );
+
+		free( path );
+		path = NULL;
+		size = 0;
+
+		if ( startTime_ == ( uint32_t )-1 ) // XenServer
+			path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, path2.c_str(), &size, 1 ) );
+
+		if ( path  && path[0] != '\0' )
+			startTime_ = strtoul( path, NULL, 10 );
+	}
+
+	free( path );
+
+	return startTime_;
 }
 
 } // namespace bdvmi

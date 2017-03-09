@@ -48,12 +48,15 @@ protected:
 public:
 	DomainWatcher();
 
-	// base class, so virtual destructor
+	// Base class, so virtual destructor
 	virtual ~DomainWatcher()
 	{
 	}
 
 public:
+	// Return true if the guest running the application can do introspection
+	virtual bool accessGranted() = 0;
+
 	void handler( DomainHandler *h )
 	{
 		handler_ = h;

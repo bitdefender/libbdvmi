@@ -34,13 +34,13 @@ public:
 
 private:
 	struct CacheInfo {
-		CacheInfo() : accessed( 0 ), pointer( NULL ), in_use( true )
+		CacheInfo() : accessed( 0 ), pointer( NULL ), in_use( 1 )
 		{
 		}
 
 		unsigned long accessed;
 		void *pointer;
-		bool in_use;
+		short in_use;
 	};
 
 	typedef std::map<unsigned long, CacheInfo> cache_t;
@@ -64,6 +64,7 @@ private:
 	MapReturnCode insertNew( unsigned long gfn, void *&pointer );
 	void cleanup();
 	unsigned long generateIndex();
+	bool checkPages( void *addr, size_t size );
 
 private: // no copying around
 	XenPageCache( const XenPageCache & );
@@ -76,6 +77,7 @@ private:
 	domid_t domain_;
 	size_t cacheLimit_;
 	LogHelper *logHelper_;
+	int linuxMajVersion_;
 };
 
 } // namespace bdvmi

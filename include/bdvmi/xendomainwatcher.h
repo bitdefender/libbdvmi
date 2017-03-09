@@ -41,12 +41,15 @@ public:
 
 	virtual ~XenDomainWatcher();
 
+public:
+	virtual bool accessGranted();
+
 private:
 	// No copying allowed (class has xsh_ and xci_)
 	XenDomainWatcher( const XenDomainWatcher & );
 
 	// No copying allowed (class has xsh_ and xci_)
-	XenDomainWatcher &operator=( const XenDomainWatcher );
+	XenDomainWatcher &operator=( const XenDomainWatcher & );
 
 private:
 	virtual bool waitForDomainsOrTimeout( std::list<DomainInfo> &domains, int ms );
@@ -65,11 +68,13 @@ private:
 	const std::string introduceToken_;
 	const std::string releaseToken_;
 	const std::string controlToken_;
+	const std::string postResumeToken_;
 	std::map<domid_t, std::string> domIds_;
 	LogHelper *logHelper_;
 	bool firstUninitWrite_;
 	domid_t ownId_;
 	bool keyCreated_;
+	std::set<domid_t> preResumeDomains_;
 };
 
 } // namespace bdvmi

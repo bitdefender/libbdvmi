@@ -39,6 +39,18 @@ extern "C" {
 #define ACCESS_W( x ) ( x.u.mem_access.flags & MEM_ACCESS_W )
 #define ACCESS_X( x ) ( x.u.mem_access.flags & MEM_ACCESS_X )
 
+#ifndef HVMOP_TRAP_sw_exc
+#define HVMOP_TRAP_sw_exc 6
+#endif
+
+#if VM_EVENT_INTERFACE_VERSION > 0x00000001
+#define RSP_DATA( x ) x.data.emul.read.data
+#define RSP_DATA_SIZE( x ) x.data.emul.read.size
+#else
+#define RSP_DATA( x ) x.data.emul_read_data.data
+#define RSP_DATA_SIZE( x ) x.data.emul_read_data.size
+#endif
+
 #define LOG_ERROR( x )                                                                                                 \
 	{                                                                                                              \
 		if ( logHelper_ )                                                                                      \
@@ -70,20 +82,30 @@ XenEventManager::XenEventManager( XenDriver &driver, unsigned short hndlFlags, L
 		cleanup();
 		throw std::runtime_error( "[Xen events] could not set up events" );
 	}
-
 #endif // DISABLE_MEM_EVENT
+
+	if ( logHelper_ ) {
+		std::stringstream ss;
+		ss << "Running on Xen " << driver_.xenVersionMajor() << "."
+			<< driver_.xenVersionMinor();
+
+		logHelper_->info( ss.str() );
+	}
+
+#ifdef DEBUG_DUMP_EVENTS
+	std::stringstream ss;
+	ss << "/tmp/" << driver.uuid() << ".events";
+
+	eventsFile_.open( ss.str().c_str(), std::ios_base::out | std::ios_base::trunc );
+#endif
 }
 
 XenEventManager::~XenEventManager()
 {
-	xc_monitor_guest_request( xci_, domain_, 0, 1 );
-	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 1 );
-	xc_monitor_software_breakpoint( xci_, domain_, 0 );
-
 	handler( NULL );
+	stop();
 
-	if ( !stop_ )
-		stop();
+	xc_monitor_software_breakpoint( xci_, domain_, 0 );
 
 	// cleanup events
 	try {
@@ -165,6 +187,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 	} else if ( handlerFlags_ & ENABLE_CR4 )
 		xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 0, 1, 1 );
 
+/*
 #if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
 	if ( flags & ENABLE_MSR ) {
 
@@ -180,6 +203,7 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 			xc_monitor_mov_to_msr( xci_, domain_, 0, 1 );
 	}
 #endif
+*/
 	handlerFlags_ = flags;
 
 	/*
@@ -195,22 +219,26 @@ bool XenEventManager::handlerFlags( unsigned short flags )
 
 bool XenEventManager::enableMsrEvents( unsigned int msr )
 {
+/*
 #if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
 	msr = msr; // Avoid unused parameter warning
 	return true;
 #else
+*/
 	return ( xc_monitor_mov_to_msr( xci_, domain_, msr, 1 ) == 0 );
-#endif
+// #endif
 }
 
 bool XenEventManager::disableMsrEvents( unsigned int msr )
 {
+/*
 #if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
 	msr = msr; // Avoid unused parameter warning
 	return true;
 #else
+*/
 	return ( xc_monitor_mov_to_msr( xci_, domain_, msr, 0 ) == 0 );
-#endif
+// #endif
 }
 
 inline void copyRegisters( Registers &regs, const vm_event_request_t &req )
@@ -272,6 +300,42 @@ inline void copyRegisters( Registers &regs, const vm_event_request_t &req )
 	}
 }
 
+void XenEventManager::setRegisters( vm_event_response_t &rsp )
+{
+	XenDriver::DelayedWrite &dw = driver_.delayedWrite();
+
+	if ( !dw.pending_ )
+		return;
+
+	rsp.data.regs.x86.rflags = dw.registers_.rflags;
+	rsp.data.regs.x86.rax = dw.registers_.rax;
+	rsp.data.regs.x86.rcx = dw.registers_.rcx;
+	rsp.data.regs.x86.rdx = dw.registers_.rdx;
+	rsp.data.regs.x86.rbx = dw.registers_.rbx;
+	rsp.data.regs.x86.rsp = dw.registers_.rsp;
+	rsp.data.regs.x86.rbp = dw.registers_.rbp;
+	rsp.data.regs.x86.rsi = dw.registers_.rsi;
+	rsp.data.regs.x86.rdi = dw.registers_.rdi;
+	rsp.data.regs.x86.r8 = dw.registers_.r8;
+	rsp.data.regs.x86.r9 = dw.registers_.r9;
+	rsp.data.regs.x86.r10 = dw.registers_.r10;
+	rsp.data.regs.x86.r11 = dw.registers_.r11;
+	rsp.data.regs.x86.r12 = dw.registers_.r12;
+	rsp.data.regs.x86.r13 = dw.registers_.r13;
+	rsp.data.regs.x86.r14 = dw.registers_.r14;
+	rsp.data.regs.x86.r15 = dw.registers_.r15;
+
+	rsp.data.regs.x86.rip = dw.registers_.rip;
+
+#ifdef VM_EVENT_FLAG_SET_REGISTERS
+	rsp.flags |= VM_EVENT_FLAG_SET_REGISTERS;
+#else
+#warning "VM_EVENT_FLAG_SET_REGISTERS is not available, try a newer Xen!"
+#endif
+
+	dw.pending_ = false;
+}
+
 void XenEventManager::waitForEvents()
 {
 	EventHandler *h = handler();
@@ -298,14 +362,18 @@ void XenEventManager::waitForEvents()
 
 			getRequest( &req );
 
+#ifdef DEBUG_DUMP_EVENTS
+			eventsFile_.write( ( const char * )&req, sizeof( req ) );
+#endif
 			++events;
 
 			StatsCollector::instance().incStat( "eventCount" );
 
 			memset( &rsp, 0, sizeof( rsp ) );
 			rsp.vcpu_id = req.vcpu_id;
-			rsp.flags = req.flags;
+			rsp.flags = req.flags & ~VM_EVENT_FLAG_ALTERNATE_P2M;
 			rsp.reason = req.reason;
+			rsp.altp2m_idx = req.altp2m_idx;
 			rsp.data.regs.x86 = req.data.regs.x86;
 
 			rsp.version = VM_EVENT_INTERFACE_VERSION;
@@ -316,11 +384,19 @@ void XenEventManager::waitForEvents()
 			if ( h )
 				h->runPreEvent();
 
+			/*
+			if ( stop_ && logHelper_ ) {
+				std::stringstream ss;
+				ss << "Got post-stop event (type: " << req.reason << ", handler: " << h << ")";
+				logHelper_->debug(ss.str());
+			}
+			*/
+
 			switch ( req.reason ) {
 
 				case VM_EVENT_REASON_MEM_ACCESS: {
 					Registers regs;
-					uint32_t rspDataSize = sizeof( rsp.data.emul_read_data.data );
+					uint32_t rspDataSize = sizeof( RSP_DATA( rsp ) );
 
 					StatsCollector::instance().incStat( "eventsMemAccess" );
 
@@ -347,10 +423,8 @@ void XenEventManager::waitForEvents()
 							break;
 
 						h->handlePageFault( req.vcpu_id, regs, gpa, gva, read, write, execute,
-						                    action, rsp.data.emul_read_data.data, rspDataSize,
+						                    action, RSP_DATA( rsp ), rspDataSize,
 						                    instructionSize );
-
-						rsp.data.emul_read_data.size = rspDataSize;
 
 						switch ( action ) {
 							case EMULATE_NOWRITE:
@@ -375,6 +449,7 @@ void XenEventManager::waitForEvents()
 								break;
 
 							case EMULATE_SET_CTXT:
+								RSP_DATA_SIZE( rsp ) = rspDataSize;
 								rsp.flags |= VM_EVENT_FLAG_SET_EMUL_READ_DATA;
 								break;
 
@@ -382,12 +457,9 @@ void XenEventManager::waitForEvents()
 							default:
 								if ( useAltP2m_ &&
 								     req.flags & VM_EVENT_FLAG_ALTERNATE_P2M ) {
-									rsp.flags = req.flags;
+									rsp.flags = req.flags | VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
+									rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
 									rsp.altp2m_idx = 0;
-									xc_domain_debug_control(
-									        xci_, domain_,
-									        XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_ON,
-									        req.vcpu_id );
 								}
 								break;
 						}
@@ -401,12 +473,10 @@ void XenEventManager::waitForEvents()
 
 					if ( useAltP2m_ ) {
 						rsp.reason = req.reason;
-						rsp.flags |= VM_EVENT_FLAG_ALTERNATE_P2M;
+						rsp.flags |= VM_EVENT_FLAG_ALTERNATE_P2M | VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
 						rsp.altp2m_idx = driver_.altp2mViewId();
 					}
 
-					xc_domain_debug_control( xci_, domain_, XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_OFF,
-					                         req.vcpu_id );
 					break;
 
 				case VM_EVENT_REASON_WRITE_CTRLREG: {
@@ -478,12 +548,12 @@ void XenEventManager::waitForEvents()
 				case VM_EVENT_REASON_GUEST_REQUEST: {
 					StatsCollector::instance().incStat( "eventsGuestRequest" );
 
-					Registers regs;
-					copyRegisters( regs, req );
+					if ( h && ( hndlFlags & ENABLE_VMCALL ) ) {
+						Registers regs;
+						copyRegisters( regs, req );
 
-					if ( h && ( hndlFlags & ENABLE_VMCALL ) )
-						h->handleVMCALL( req.vcpu_id, regs, req.data.regs.x86.rip,
-						                 req.data.regs.x86.rax );
+						h->handleVMCALL( req.vcpu_id, regs );
+					}
 
 					break;
 				}
@@ -491,25 +561,65 @@ void XenEventManager::waitForEvents()
 				case VM_EVENT_REASON_SOFTWARE_BREAKPOINT: {
 					StatsCollector::instance().incStat( "eventsBreakPoint" );
 
-					bool reinject = true;
+					bool reinject = ( h != NULL );
 
-					if ( h )
-						reinject = !h->handleBreakpoint( req.vcpu_id,
+					if ( h ) {
+						Registers regs;
+						copyRegisters( regs, req );
+
+						reinject = !h->handleBreakpoint( req.vcpu_id, regs,
 						                                 req.u.software_breakpoint.gfn );
+					}
 
-					if ( reinject )
+					if ( reinject ) {
 						if ( xc_hvm_inject_trap( xci_, domain_, req.vcpu_id, 3,
 						                         HVMOP_TRAP_sw_exc, ~0u, 1, 0 ) < 0 ) {
 
 							if ( logHelper_ )
 								logHelper_->error( "Could not reinject breakpoint" );
+						} else {
+							if ( logHelper_ ) {
+								std::stringstream ss;
+								ss << "Reinjecting breakpoint (VCPU: " << req.vcpu_id
+									<< ", GFN: " << std::showbase << std::hex
+									<< req.u.software_breakpoint.gfn
+									<< ", RIP: " << req.data.regs.x86.rip << ")";
+								logHelper_->warning( ss.str() );
+							}
 						}
+					}
+
+					break;
 				}
 
+#ifdef VM_EVENT_REASON_INTERRUPT
+				case VM_EVENT_REASON_INTERRUPT:
+					if ( h ) {
+						Registers regs;
+						copyRegisters( regs, req );
+
+						h->handleInterrupt( req.vcpu_id, regs, req.u.interrupt.x86.vector,
+						                    req.u.interrupt.x86.error_code, req.u.interrupt.x86.cr2 );
+					}
+
+					break;
+#endif
 				default:
 					// unknown reason code
 					break;
 			}
+
+			if ( driver_.pendingInjection( req.vcpu_id ) ) {
+#ifdef VM_EVENT_REASON_INTERRUPT
+				rsp.flags |= VM_EVENT_FLAG_GET_NEXT_INTERRUPT;
+#else
+#warning "VM_EVENT_REASON_INTERRUPT is not available, try a newer Xen!"
+#endif
+				driver_.clearInjection( req.vcpu_id );
+			}
+
+			setRegisters( rsp );
+			driver_.flushPageProtections();
 
 			if ( h )
 				h->runPostEvent();
@@ -532,6 +642,9 @@ void XenEventManager::waitForEvents()
 
 void XenEventManager::stop()
 {
+	if ( stop_ ) // It's already been called
+		return;
+
 	EventHandler *h = handler();
 
 	if ( h )
@@ -539,8 +652,16 @@ void XenEventManager::stop()
 
 	stop_ = true;
 
+	xc_monitor_guest_request( xci_, domain_, 0, 1 );
+	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 1 );
+
 #ifndef DISABLE_MEM_EVENT
-	handlerFlags( 0 );
+	unsigned short newFlags = 0;
+
+	if ( handlerFlags_ & ENABLE_MEMORY )
+		newFlags = ENABLE_MEMORY;
+
+	handlerFlags( newFlags );
 #endif // DISABLE_MEM_EVENT
 }
 

@@ -50,6 +50,16 @@ class XenDriver : public Driver {
 	};
 
 public:
+	struct DelayedWrite {
+		DelayedWrite() : pending_( false )
+		{
+		}
+
+		Registers registers_;
+		bool pending_;
+	};
+
+public:
 	// Create a XenDriver object with the domain name
 	XenDriver( const std::string &domainName, LogHelper *logHelper = NULL, bool hvmOnly = true,
 	           bool useAltP2m = false );
@@ -68,14 +78,13 @@ public:
 
 	virtual bool setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute ) throw();
 
-	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) const
-	        throw();
+	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) throw();
 
 	virtual bool registers( unsigned short vcpu, Registers &regs ) const throw();
 
 	virtual bool mtrrs( unsigned short vcpu, Mtrrs &m ) const throw();
 
-	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip ) throw();
+	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) throw();
 
 	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length ) throw();
 
@@ -132,6 +141,10 @@ public:
 
 	virtual void disableCache();
 
+	virtual void flushPageProtections();
+
+	uint32_t startTime();
+
 public: // Xen specific-stuff
 	xc_interface *nativeHandle() const
 	{
@@ -145,6 +158,16 @@ public: // Xen specific-stuff
 
 public:
 	static int32_t guestX86Mode( const Registers &regs );
+
+	DelayedWrite &delayedWrite() { return delayedWrite_; }
+
+	bool pendingInjection( unsigned short vcpu ) const;
+
+	void clearInjection( unsigned short vcpu );
+
+	int xenVersionMajor() const { return xenVersionMajor_; }
+
+	int xenVersionMinor() const { return xenVersionMinor_; }
 
 private:
 	// Don't allow copying for these objects (class has xci_)
@@ -183,6 +206,14 @@ private:
 	uint16_t altp2mViewId_;
 	mutable RegsCache regsCache_;
 	bool update_;
+	DelayedWrite delayedWrite_;
+	std::map<unsigned long, xenmem_access_t> memAccessCache_;
+	std::map<unsigned long, xenmem_access_t> delayedMemAccessWrite_;
+	std::map<unsigned short, bool> pendingInjections_;
+	std::mutex memAccessCacheMutex_;
+	int xenVersionMajor_;
+	int xenVersionMinor_;
+	uint32_t startTime_;
 };
 
 } // namespace bdvmi

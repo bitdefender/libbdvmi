@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace bdvmi {
 
@@ -157,8 +158,8 @@ public:
 	                                bool execute ) throw() = 0;
 
 	// Get guest page protection
-	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) const
-	        throw() = 0;
+	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
+	                                throw() = 0;
 
 	// Get registers
 	virtual bool registers( unsigned short vcpu, Registers &regs ) const throw() = 0;
@@ -167,7 +168,7 @@ public:
 	virtual bool mtrrs( unsigned short vcpu, Mtrrs &m ) const throw() = 0;
 
 	// Set registers
-	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip ) throw() = 0;
+	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) throw() = 0;
 
 	// Write to physical address
 	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length ) throw() = 0;
@@ -217,6 +218,10 @@ public:
 	virtual void enableCache( unsigned short vcpu ) = 0;
 
 	virtual void disableCache() = 0;
+
+	virtual void flushPageProtections() = 0;
+
+	virtual uint32_t startTime() = 0;
 
 private:
 	EventHandler *handler_;

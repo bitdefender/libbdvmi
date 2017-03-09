@@ -48,12 +48,15 @@ public:
 	                              uint8_t *emulatorCtx, uint32_t &emuCtxSize, unsigned short &instructionSize ) = 0;
 
 	// Callback for VMCALL events.
-	virtual void handleVMCALL( unsigned short vcpu, const Registers &regs, uint64_t rip, uint64_t eax ) = 0;
+	virtual void handleVMCALL( unsigned short vcpu, const Registers &regs ) = 0;
 
 	virtual void handleXSETBV( unsigned short vcpu, uint64_t xcr0 ) = 0;
 
 	// Return false if you want to reinject
-	virtual bool handleBreakpoint( unsigned short vcpu, uint64_t gpa ) = 0;
+	virtual bool handleBreakpoint( unsigned short vcpu, const Registers &regs, uint64_t gpa ) = 0;
+
+	virtual void handleInterrupt( unsigned short vcpu, const Registers &regs, uint32_t vector,
+	                              uint64_t errorCode, uint64_t cr2 ) = 0;
 
 	// Notice that the connection to the guest has been terminated (if guestStillRunning is true
 	// then this has _not_ happened because the guest shut down or has been forcefully terminated).

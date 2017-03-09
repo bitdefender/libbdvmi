@@ -16,6 +16,7 @@
 #include <bdvmi/backendfactory.h>
 #include <bdvmi/domainhandler.h>
 #include <bdvmi/domainwatcher.h>
+#include <bdvmi/driver.h>
 #include <bdvmi/eventhandler.h>
 #include <bdvmi/eventmanager.h>
 #include <bdvmi/loghelper.h>
@@ -98,10 +99,9 @@ public:
 		cout << "Page fault event on VCPU: " << vcpu << endl;
 	}
 
-	virtual void handleVMCALL( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint64_t /* rip */,
-	                           uint64_t eax )
+	virtual void handleVMCALL( unsigned short vcpu, const bdvmi::Registers &regs )
 	{
-		cout << "VMCALL event on VCPU " << vcpu << ", EAX: 0x" << hex << eax << endl;
+		cout << "VMCALL event on VCPU " << vcpu << ", EAX: 0x" << hex << regs.rax << endl;
 	}
 
 	virtual void handleXSETBV( unsigned short vcpu, uint64_t ecx )
@@ -110,12 +110,18 @@ public:
 	}
 
 	// Reserved (currently not in use)
-	virtual bool handleBreakpoint( unsigned short vcpu, uint64_t gpa )
+	virtual bool handleBreakpoint( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint64_t gpa )
 	{
 		cout << "INT3 (breakpoint) event on VCPU " << vcpu << ", gpa: " << hex << showbase << gpa << endl;
 
 		// Did not do anything about the breakpoint, so reinject it.
 		return false;
+	}
+
+	virtual void handleInterrupt( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint32_t /* vector */,
+	                              uint64_t /* errorCode */, uint64_t /* cr2 */ )
+	{
+		cout << "Interrup event on VCPU " << vcpu << endl;
 	}
 
 	virtual void handleSessionOver( bool /* domainStillRunning */ )

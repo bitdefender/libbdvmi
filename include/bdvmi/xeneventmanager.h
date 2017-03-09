@@ -17,6 +17,7 @@
 #define __BDVMIXENEVENTMANAGER_H_INCLUDED__
 
 #include "eventmanager.h"
+#include <fstream>
 #include <stdint.h>
 #include <string>
 
@@ -89,6 +90,8 @@ private:
 
 	void cleanup();
 
+	void setRegisters( vm_event_response_t &rsp );
+
 private:
 	// Don't allow copying for these objects
 	XenEventManager( const XenEventManager & );
@@ -118,6 +121,9 @@ private:
 	bool firstReleaseWatch_;
 	bool firstXenServerWatch_;
 	bool useAltP2m_;
+#ifdef DEBUG_DUMP_EVENTS
+	std::ofstream eventsFile_;
+#endif
 };
 
 } // namespace bdvmi
