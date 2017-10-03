@@ -63,14 +63,31 @@ extern "C" {
 			logHelper_->debug( x );                                                                        \
 	}
 
+/* From xen/include/asm-x86/x86-defns.h */
+#define X86_CR4_PGE        0x00000080 /* enable global pages */
+
+/* From xen/include/asm-x86/msr-index.h */
+#define MSR_IA32_SYSENTER_CS            0x00000174
+#define MSR_IA32_SYSENTER_ESP           0x00000175
+#define MSR_IA32_SYSENTER_EIP           0x00000176
+#define MSR_IA32_CR_PAT                 0x00000277
+#define MSR_IA32_MISC_ENABLE            0x000001a0
+#define MSR_IA32_MC0_CTL                0x00000400
+
+#define MSR_EFER                0xc0000080 /* extended feature register */
+#define MSR_STAR                0xc0000081 /* legacy mode SYSCALL target */
+#define MSR_LSTAR               0xc0000082 /* long mode SYSCALL target */
+#define MSR_FS_BASE             0xc0000100 /* 64bit FS base */
+#define MSR_GS_BASE             0xc0000101 /* 64bit GS base */
+#define MSR_SHADOW_GS_BASE      0xc0000102 /* SwapGS GS shadow */
+
 namespace bdvmi {
 
-XenEventManager::XenEventManager( XenDriver &driver, unsigned short hndlFlags, LogHelper *logHelper,
-                                  bool useAltP2m )
-    : driver_( driver ), xci_( driver.nativeHandle() ), domain_( driver.id() ), stop_( false ), xce_( NULL ),
-      port_( -1 ), xsh_( NULL ), evtchnPort_( 0 ), ringPage_( NULL ), memAccessOn_( false ), evtchnOn_( false ),
-      evtchnBindOn_( false ), handlerFlags_( 0 ), guestStillRunning_( true ), logHelper_( logHelper ),
-      firstReleaseWatch_( true ), firstXenServerWatch_( true ), useAltP2m_( useAltP2m )
+XenEventManager::XenEventManager( XenDriver &driver, LogHelper *logHelper, bool useAltP2m )
+    : driver_( driver ), xci_( driver.nativeHandle() ), domain_( driver.id() ), stop_( false ), xce_( nullptr ),
+      port_( -1 ), xsh_( nullptr ), evtchnPort_( 0 ), ringPage_( nullptr ), memAccessOn_( false ), evtchnOn_( false ),
+      evtchnBindOn_( false ), guestStillRunning_( true ), logHelper_( logHelper ), firstReleaseWatch_( true ),
+      firstXenServerWatch_( true ), useAltP2m_( useAltP2m )
 {
 	initXenStore();
 
@@ -78,10 +95,6 @@ XenEventManager::XenEventManager( XenDriver &driver, unsigned short hndlFlags, L
 	initAltP2m();
 	initMemAccess();
 
-	if ( !handlerFlags( hndlFlags ) ) {
-		cleanup();
-		throw std::runtime_error( "[Xen events] could not set up events" );
-	}
 #endif // DISABLE_MEM_EVENT
 
 	if ( logHelper_ ) {
@@ -102,14 +115,24 @@ XenEventManager::XenEventManager( XenDriver &driver, unsigned short hndlFlags, L
 
 XenEventManager::~XenEventManager()
 {
-	handler( NULL );
+	handler( nullptr );
 	stop();
 
 	xc_monitor_software_breakpoint( xci_, domain_, 0 );
 
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040900
+	xc_monitor_guest_request( xci_, domain_, false, true, true );
+#else
+	xc_monitor_guest_request( xci_, domain_, false, true );
+#endif
+
 	// cleanup events
 	try {
-		waitForEvents();
+		for ( int i = 0; i < 3; ++i )
+			waitForEvents();
+	} catch ( const std::exception &e ) {
+		if ( logHelper_ )
+			logHelper_->warning( e.what() );
 	} catch ( ... ) {
 		// std::runtime_errors not allowed to escape destructors
 	}
@@ -155,90 +178,89 @@ void XenEventManager::cleanup()
 	}
 }
 
-bool XenEventManager::handlerFlags( unsigned short flags )
+bool XenEventManager::enableMsrEvents( unsigned int msr, bool &oldValue )
 {
-	if ( flags & ENABLE_CR0 ) {
-		if ( ( handlerFlags_ & ENABLE_CR0 ) == 0 ) {
-			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 1, 1, 1 ) ) {
-				LOG_ERROR( "[Xen events] could not set up CR0 event handler" );
-				return false;
-			}
-		}
-	} else if ( handlerFlags_ & ENABLE_CR0 )
-		xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR0, 0, 1, 1 );
+	oldValue = ( enabledMsrs_.find( msr ) != enabledMsrs_.end() );
 
-	if ( flags & ENABLE_CR3 ) {
-		if ( ( handlerFlags_ & ENABLE_CR3 ) == 0 ) {
-			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 1, 1, 1 ) ) {
-				LOG_ERROR( "[Xen events] could not set up CR3 event handler" );
-				return false;
-			}
-		}
-	} else if ( handlerFlags_ & ENABLE_CR3 )
-		xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR3, 0, 1, 1 );
-
-	if ( flags & ENABLE_CR4 ) {
-		if ( ( handlerFlags_ & ENABLE_CR4 ) == 0 ) {
-			if ( xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 1, 1, 1 ) ) {
-				LOG_ERROR( "[Xen events] could not set up CR4 event handler" );
-				return false;
-			}
-		}
-	} else if ( handlerFlags_ & ENABLE_CR4 )
-		xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_CR4, 0, 1, 1 );
-
-/*
-#if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
-	if ( flags & ENABLE_MSR ) {
-
-		if ( ( handlerFlags_ & ENABLE_MSR ) == 0 ) {
-
-			if ( xc_monitor_mov_to_msr( xci_, domain_, 1, 1 ) ) {
-				LOG_ERROR( "[Xen events] could not set up MSR event handler" );
-				return false;
-			}
-		}
-	} else {
-		if ( handlerFlags_ & ENABLE_MSR )
-			xc_monitor_mov_to_msr( xci_, domain_, 0, 1 );
+	if ( !oldValue ) { 
+		enabledMsrs_.insert( msr );
+		return ( xc_monitor_mov_to_msr( xci_, domain_, msr, 1 ) == 0 );
 	}
+
+	return true;
+}
+
+bool XenEventManager::disableMsrEvents( unsigned int msr, bool &oldValue )
+{
+	oldValue = ( enabledMsrs_.find( msr ) != enabledMsrs_.end() );
+
+	if ( oldValue ) { 
+		enabledMsrs_.erase( msr );
+		return ( xc_monitor_mov_to_msr( xci_, domain_, msr, 0 ) == 0 );
+	}
+
+	return true;
+}
+
+bool XenEventManager::setCrEvents( unsigned int cr, bool enable )
+{
+	uint16_t index;
+	bool retval;
+#if XEN_DOMCTL_INTERFACE_VERSION >= 0x0000000e
+	uint64_t bitmask = 0;
 #endif
-*/
-	handlerFlags_ = flags;
 
-	/*
-	   No check for (flags & ENABLE_MEMORY) because Xen memory events
-	   are being set up by the driver directly (via setPageProtection()).
+	if ( enable && enabledCrs_.find( cr ) != enabledCrs_.end() )
+		return true; // Already enabled
 
-	   The flag is, however, necessary, to tell waitForEvents() if it
-	   should call EventHandler::handlePageFault() or not.
-	*/
+	if ( !enable && enabledCrs_.find( cr ) == enabledCrs_.end() )
+		return true; // Already disabled
+
+	switch ( cr ) {
+	case 0:
+		index = VM_EVENT_X86_CR0;
+		break;
+	case 4:
+		index = VM_EVENT_X86_CR4;
+#if XEN_DOMCTL_INTERFACE_VERSION >= 0x0000000e
+		bitmask = X86_CR4_PGE;
+#endif
+		break;
+	case 3:
+		index = VM_EVENT_X86_CR3;
+		break;
+	default:
+		return false; // Unsupported CR index
+	}
+
+#if XEN_DOMCTL_INTERFACE_VERSION >= 0x0000000e
+	retval = xc_monitor_write_ctrlreg( xci_, domain_, index, enable, 1, bitmask, 1 );
+#else
+	retval = xc_monitor_write_ctrlreg( xci_, domain_, index, enable, 1, 1 );
+#endif
+
+	if ( retval ) {
+		LOG_ERROR( std::string( "[Xen events] could not set up CR" ) +
+		           std::to_string( cr ) + " event handler" );
+		return false;
+	}
+
+	if ( enable )
+		enabledCrs_.insert( cr );
+	else
+		enabledCrs_.erase( cr );
 
 	return true;
 }
 
-bool XenEventManager::enableMsrEvents( unsigned int msr )
+bool XenEventManager::enableCrEvents( unsigned int cr )
 {
-/*
-#if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
-	msr = msr; // Avoid unused parameter warning
-	return true;
-#else
-*/
-	return ( xc_monitor_mov_to_msr( xci_, domain_, msr, 1 ) == 0 );
-// #endif
+	return setCrEvents( cr, true );
 }
 
-bool XenEventManager::disableMsrEvents( unsigned int msr )
+bool XenEventManager::disableCrEvents( unsigned int cr )
 {
-/*
-#if XEN_DOMCTL_INTERFACE_VERSION < 0x0000000c
-	msr = msr; // Avoid unused parameter warning
-	return true;
-#else
-*/
-	return ( xc_monitor_mov_to_msr( xci_, domain_, msr, 0 ) == 0 );
-// #endif
+	return setCrEvents( cr, false );
 }
 
 inline void copyRegisters( Registers &regs, const vm_event_request_t &req )
@@ -358,8 +380,6 @@ void XenEventManager::waitForEvents()
 		int events = 0;
 
 		while ( RING_HAS_UNCONSUMED_REQUESTS( &backRing_ ) ) {
-			unsigned short hndlFlags = handlerFlags();
-
 			getRequest( &req );
 
 #ifdef DEBUG_DUMP_EVENTS
@@ -405,7 +425,7 @@ void XenEventManager::waitForEvents()
 					rsp.flags |= VM_EVENT_FLAG_EMULATE;
 					rsp.u.mem_access.gfn = req.u.mem_access.gfn;
 
-					if ( h && ( hndlFlags & ENABLE_MEMORY ) ) {
+					if ( h ) {
 						uint64_t gva = 0;
 						bool read = ( ACCESS_R( req ) != 0 );
 						bool write = ( ACCESS_W( req ) != 0 );
@@ -488,7 +508,7 @@ void XenEventManager::waitForEvents()
 					rsp.u.write_ctrlreg.index = req.u.write_ctrlreg.index;
 
 					if ( req.u.write_ctrlreg.index == VM_EVENT_X86_XCR0 ) {
-						if ( h && ( hndlFlags & ENABLE_XSETBV ) )
+						if ( h )
 							h->handleXSETBV( req.vcpu_id, req.u.write_ctrlreg.new_value );
 
 						break;
@@ -525,22 +545,31 @@ void XenEventManager::waitForEvents()
 				case VM_EVENT_REASON_MOV_TO_MSR:
 					StatsCollector::instance().incStat( "eventsMovToMsr" );
 
-					if ( h && ( hndlFlags & ENABLE_MSR ) ) {
-
+					if ( h ) {
 						HVAction action = NONE;
 
-						bool msrEnabled = false;
-						driver_.isMsrEnabled( req.u.mov_to_msr.msr, msrEnabled );
+						auto i = msrOldValueCache_.find( req.vcpu_id );
+						uint64_t oldValue;
 
-						if ( msrEnabled ) {
-							// old value == new value (can't get the old one)
-							h->handleMSR( req.vcpu_id, req.u.mov_to_msr.msr,
-							              req.u.mov_to_msr.value, req.u.mov_to_msr.value,
-							              action );
+						if ( i == msrOldValueCache_.end() ) // not found
+							oldValue = getMsr( req.vcpu_id, req.u.mov_to_msr.msr );
+						else {
+							auto j = i->second.find( req.u.mov_to_msr.msr );
 
-							if ( action == SKIP_INSTRUCTION || action == EMULATE_NOWRITE )
-								rsp.flags |= VM_EVENT_FLAG_DENY;
+							if ( j == i->second.end() ) // not found
+								oldValue = getMsr( req.vcpu_id, req.u.mov_to_msr.msr );
+							else
+								oldValue = j->second;
 						}
+
+						h->handleMSR( req.vcpu_id, req.u.mov_to_msr.msr, oldValue,
+						              req.u.mov_to_msr.value, action );
+
+						if ( action == SKIP_INSTRUCTION || action == EMULATE_NOWRITE )
+							rsp.flags |= VM_EVENT_FLAG_DENY;
+						else
+							msrOldValueCache_[req.vcpu_id][req.u.mov_to_msr.msr] =
+								req.u.mov_to_msr.value;
 					}
 
 					break;
@@ -548,7 +577,7 @@ void XenEventManager::waitForEvents()
 				case VM_EVENT_REASON_GUEST_REQUEST: {
 					StatsCollector::instance().incStat( "eventsGuestRequest" );
 
-					if ( h && ( hndlFlags & ENABLE_VMCALL ) ) {
+					if ( h ) {
 						Registers regs;
 						copyRegisters( regs, req );
 
@@ -561,7 +590,7 @@ void XenEventManager::waitForEvents()
 				case VM_EVENT_REASON_SOFTWARE_BREAKPOINT: {
 					StatsCollector::instance().incStat( "eventsBreakPoint" );
 
-					bool reinject = ( h != NULL );
+					bool reinject = ( h != nullptr );
 
 					if ( h ) {
 						Registers regs;
@@ -652,16 +681,16 @@ void XenEventManager::stop()
 
 	stop_ = true;
 
-	xc_monitor_guest_request( xci_, domain_, 0, 1 );
+#if XEN_DOMCTL_INTERFACE_VERSION >= 0x0000000e
+	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 0, 1 );
+#else
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 0, 1, 1 );
+#endif
 
 #ifndef DISABLE_MEM_EVENT
-	unsigned short newFlags = 0;
-
-	if ( handlerFlags_ & ENABLE_MEMORY )
-		newFlags = ENABLE_MEMORY;
-
-	handlerFlags( newFlags );
+	disableCrEvents( 0 );
+	disableCrEvents( 3 );
+	disableCrEvents( 4 );
 #endif // DISABLE_MEM_EVENT
 }
 
@@ -700,7 +729,7 @@ void XenEventManager::initXenStore()
 void XenEventManager::initEventChannels()
 {
 	/* Open event channel */
-	xce_ = xc_evtchn_open( NULL, 0 );
+	xce_ = xc_evtchn_open( nullptr, 0 );
 
 	if ( !xce_ ) {
 		cleanup();
@@ -730,7 +759,7 @@ void XenEventManager::initMemAccess()
 {
 	ringPage_ = xc_monitor_enable( xci_, domain_, &evtchnPort_ );
 
-	if ( ringPage_ == NULL ) {
+	if ( ringPage_ == nullptr ) {
 		cleanup();
 
 		switch ( errno ) {
@@ -753,8 +782,17 @@ void XenEventManager::initMemAccess()
 
 	xc_domain_set_access_required( xci_, domain_, 0 );
 
-	xc_monitor_guest_request( xci_, domain_, 1, 1 );
+
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040900
+	xc_monitor_guest_request( xci_, domain_, true, true, true );
+#else
+	xc_monitor_guest_request( xci_, domain_, true, true );
+#endif
+#if XEN_DOMCTL_INTERFACE_VERSION >= 0x0000000e
+	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 1, 1, 0, 1 );
+#else
 	xc_monitor_write_ctrlreg( xci_, domain_, VM_EVENT_X86_XCR0, 1, 1, 1 );
+#endif
 	xc_monitor_software_breakpoint( xci_, domain_, 1 );
 }
 
@@ -833,7 +871,7 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 					firstXenServerWatch_ = false;
 				} else {
 					char *value = static_cast<char *>(
-					        xs_read_timeout( xsh_, XBT_NULL, vec[XS_WATCH_PATH], NULL, 1 ) );
+					        xs_read_timeout( xsh_, XBT_NULL, vec[XS_WATCH_PATH], nullptr, 1 ) );
 
 					if ( value ) {
 						std::string tmp = value;
@@ -926,6 +964,41 @@ void XenEventManager::resumePage()
 std::string XenEventManager::uuid()
 {
 	return driver_.uuid();
+}
+
+uint64_t XenEventManager::getMsr( unsigned short vcpu, uint32_t msr ) const
+{
+	bdvmi::Registers regs;
+
+	if ( !driver_.registers( vcpu, regs ) )
+		return 0;
+
+	switch ( msr ) {
+		case MSR_IA32_SYSENTER_CS:
+			return regs.sysenter_cs;
+		case MSR_IA32_SYSENTER_ESP:
+			return regs.sysenter_esp;
+		case MSR_IA32_SYSENTER_EIP:
+			return regs.sysenter_eip;
+		case MSR_EFER:
+			return regs.msr_efer;
+		case MSR_LSTAR:
+			return regs.msr_lstar;
+		case MSR_FS_BASE:
+			return regs.fs_base;
+		case MSR_GS_BASE:
+			return regs.gs_base;
+		case MSR_STAR:
+			return regs.msr_star;
+		case MSR_IA32_CR_PAT:
+			return regs.msr_pat;
+		case MSR_SHADOW_GS_BASE:
+			return regs.shadow_gs;
+		case MSR_IA32_MISC_ENABLE:
+		case MSR_IA32_MC0_CTL:
+		default:
+			return 0;
+	}
 }
 
 } // namespace bdvmi

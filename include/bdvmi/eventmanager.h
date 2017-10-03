@@ -27,17 +27,6 @@ class EventHandler;
 class EventManager {
 
 public:
-	enum { ENABLE_NONE = 0,
-	       ENABLE_CR0 = 1,
-	       ENABLE_CR3 = ( 1 << 1 ),
-	       ENABLE_CR4 = ( 1 << 2 ),
-	       ENABLE_MSR = ( 1 << 3 ),
-	       ENABLE_MEMORY = ( 1 << 4 ),
-	       ENABLE_VMCALL = ( 1 << 5 ),
-	       ENABLE_XSETBV = ( 1 << 6 ),
-	       ENABLE_ALL = ( ENABLE_CR0 | ENABLE_CR3 | ENABLE_CR4 | ENABLE_MSR | ENABLE_MEMORY | ENABLE_VMCALL | ENABLE_XSETBV ) };
-
-public:
 	EventManager( EventHandler *handler = 0 ) : sigStop_( 0 ), handler_( handler )
 	{
 	}
@@ -65,15 +54,13 @@ public:
 		sigStop_ = sigStop;
 	}
 
-	virtual bool enableMsrEvents( unsigned int msr ) = 0;
+	virtual bool enableMsrEvents( unsigned int msr, bool &oldValue ) = 0;
 
-	virtual bool disableMsrEvents( unsigned int msr ) = 0;
+	virtual bool disableMsrEvents( unsigned int msr, bool &oldValue ) = 0;
 
-	// Set handler flags
-	virtual bool handlerFlags( unsigned short flags ) = 0;
+	virtual bool enableCrEvents( unsigned int cr ) = 0;
 
-	// Get handler flags
-	virtual unsigned short handlerFlags() const = 0;
+	virtual bool disableCrEvents( unsigned int cr ) = 0;
 
 	// Loop waiting for events
 	virtual void waitForEvents() = 0;

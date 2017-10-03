@@ -67,7 +67,7 @@ std::string uuidToString( const xen_domain_handle_t &uuid )
 }
 
 XenDomainWatcher::XenDomainWatcher( LogHelper *logHelper )
-    : xsh_( NULL ), xci_( NULL ), introduceToken_( "introduce" ), releaseToken_( "release" ), controlToken_( "control" ),
+    : xsh_( nullptr ), xci_( nullptr ), introduceToken_( "introduce" ), releaseToken_( "release" ), controlToken_( "control" ),
       postResumeToken_("post-resume"), logHelper_( logHelper ), firstUninitWrite_( true ), ownId_( -1 ), keyCreated_( false )
 {
 	xsh_ = xs_open( 0 );
@@ -86,7 +86,7 @@ XenDomainWatcher::XenDomainWatcher( LogHelper *logHelper )
 		throw std::runtime_error( "xs_watch() failed" );
 	}
 
-	xci_ = xc_interface_open( NULL, NULL, 0 );
+	xci_ = xc_interface_open( nullptr, nullptr, 0 );
 
 	if ( !xci_ ) {
 		xs_unwatch( xsh_, "@introduceDomain", introduceToken_.c_str() );
@@ -137,7 +137,7 @@ bool XenDomainWatcher::getNewDomains( std::list<DomainInfo> &domains, char **vec
 		std::stringstream ss;
 		ss << "/local/domain/" << dominfo.domid << "/vm-data/pre-resume";
 
-		void *dummy = xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), NULL, 1 );
+		void *dummy = xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), nullptr, 1 );
 
 		// Key exists, so the domain is pre-resuming. Wait until post-resume to
 		// hook the domain, don't hook it immediately.
@@ -169,17 +169,18 @@ bool XenDomainWatcher::getNewDomains( std::list<DomainInfo> &domains, char **vec
 
 				errno = 0;
 				char *name = static_cast<char *>(
-				        xs_read_timeout( xsh_, XBT_NULL, path.c_str(), NULL, 1 ) );
+				        xs_read_timeout( xsh_, XBT_NULL, path.c_str(), nullptr, 1 ) );
 
 				if ( name ) { // domain running or new domain w name set
-					DomainInfo domain( name, DomainInfo::STATE_NEW );
-					free( name );
-
 					if ( !isSelf( dominfo.domid ) ) {
+						DomainInfo domain( uuid( dominfo.domid ), DomainInfo::STATE_NEW, name );
+
 						domains.push_back( domain );
-						domIds_[dominfo.domid] = domain.name;
+						domIds_[dominfo.domid] = domain.uuid;
 						ret = true;
 					}
+
+					free( name );
 
 				} else { // new domain, name not yet set
 					ss.str( "" );
@@ -264,7 +265,7 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 				firstUninitWrite_ = false;
 			else {
 				char *value = static_cast<char *>(
-				        xs_read_timeout( xsh_, XBT_NULL, vec[XS_WATCH_PATH], NULL, 1 ) );
+				        xs_read_timeout( xsh_, XBT_NULL, vec[XS_WATCH_PATH], nullptr, 1 ) );
 
 				if ( value ) {
 					std::string tmp = value;
@@ -290,11 +291,11 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 			if ( sscanf( vec[XS_WATCH_TOKEN], "dom%u", &domid ) == 1 ) {
 
 				char *name = static_cast<char *>(
-				        xs_read_timeout( xsh_, XBT_NULL, vec[XS_WATCH_PATH], NULL, 1 ) );
+				        xs_read_timeout( xsh_, XBT_NULL, vec[XS_WATCH_PATH], nullptr, 1 ) );
 
 				if ( name ) {
 					if ( !isSelf( domid ) ) {
-						DomainInfo domain( name, DomainInfo::STATE_NEW );
+						DomainInfo domain( uuid( domid ), DomainInfo::STATE_NEW, name );
 						domains.push_back( domain );
 						ret = true;
 					}
@@ -311,10 +312,10 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 	return ret;
 }
 
-bool XenDomainWatcher::isSelf( domid_t domain )
+std::string XenDomainWatcher::uuid( domid_t domain ) const
 {
 	std::stringstream ss;
-	std::string uuid;
+	std::string strUuid;
 	unsigned int size = 0;
 
 	ss << "/local/domain/" << domain << "/vm";
@@ -331,12 +332,17 @@ bool XenDomainWatcher::isSelf( domid_t domain )
 		path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), &size, 1 ) );
 
 		if ( path && path[0] != '\0' )
-			uuid = path;
+			strUuid = path;
 	}
 
 	free( path );
 
-	if ( uuid == ownUuid_ ) {
+	return strUuid;
+}
+
+bool XenDomainWatcher::isSelf( domid_t domain )
+{
+	if ( uuid( domain ) == ownUuid_ ) {
 		ownId_ = domain;
 		initControlKey( ownId_ );
 		return true;

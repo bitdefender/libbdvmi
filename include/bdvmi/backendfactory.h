@@ -31,14 +31,14 @@ public:
 	enum BackendType { BACKEND_XEN, BACKEND_KVM };
 
 public:
-	BackendFactory( BackendType type, LogHelper *logHelper = NULL );
+	BackendFactory( BackendType type, LogHelper *logHelper = nullptr );
 
 public:
 	DomainWatcher *domainWatcher();
 
 	Driver *driver( const std::string &domain, bool watchableOnly = true );
 
-	EventManager *eventManager( Driver &driver, unsigned short handlerFlags );
+	EventManager *eventManager( Driver &driver );
 
 private:
 	// Prevent copying

@@ -60,6 +60,8 @@ private:
 
 	bool getNewDomains( std::list<DomainInfo> &domains, char **vec );
 
+	std::string uuid( domid_t domain ) const;
+
 private:
 	xs_handle *xsh_;
 	xc_interface *xci_;

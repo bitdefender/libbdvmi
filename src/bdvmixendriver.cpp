@@ -42,10 +42,6 @@ extern "C" {
 
 // #define DISABLE_PAGE_CACHE
 
-#define MTRR_PHYSMASK_VALID_BIT 11
-#define MTRR_PHYSMASK_SHIFT 12
-#define MTRR_PHYSBASE_TYPE_MASK 0xff /* lowest 8 bits */
-
 #define X86_CR0_PE 0x00000001    /* Enable Protected Mode    (RW) */
 #define X86_EFLAGS_VM 0x00020000 /* Virtual Mode */
 #define _EFER_LMA 10             /* Long mode active (read-only) */
@@ -75,19 +71,19 @@ static bool check_page( void *addr )
 #endif
 
 XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
-    : xci_( NULL ), xsh_( NULL ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
+    : xci_( nullptr ), xsh_( nullptr ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
       useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false ), xenVersionMajor_( 0 ), xenVersionMinor_( 0 ),
-      startTime_( -1 )
+      startTime_( -1 ), patInitialized_( false ), msrPat_( 0 )
 {
 	init( domain, hvmOnly );
 }
 
-XenDriver::XenDriver( const std::string &domainName, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
-    : xci_( NULL ), xsh_( NULL ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
+XenDriver::XenDriver( const std::string &uuid, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
+    : xci_( nullptr ), xsh_( nullptr ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
       useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false ), xenVersionMajor_( 0 ), xenVersionMinor_( 0 ),
-      startTime_( -1 )
+      startTime_( -1 ), patInitialized_( false ), msrPat_( 0 )
 {
-	domain_ = getDomainId( domainName );
+	domain_ = getDomainId( uuid );
 	init( domain_, hvmOnly );
 }
 
@@ -151,110 +147,6 @@ bool XenDriver::tscSpeed( unsigned long long &speed ) const
 	return true;
 }
 
-bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
-{
-	const uint8_t MTRR_TYPE_UNCACHABLE = 0;
-	const uint8_t MTRR_TYPE_WRTHROUGH = 4;
-
-	int32_t seg, index;
-	uint8_t overlap_mtrr = 0, overlap_mtrr_pos = 0;
-
-	static bool hwMtrrInit = false;
-	static struct hvm_hw_mtrr hwMtrr;
-
-	if ( !hwMtrrInit ) {
-		StatsCollector::instance().incStat( "partialContext" );
-		StatsCollector::instance().incStat( "partialMtrr" );
-		if ( xc_domain_hvm_getcontext_partial( xci_, domain_, HVM_SAVE_CODE( MTRR ), 0, &hwMtrr,
-		                                       sizeof( hwMtrr ) ) != 0 ) {
-
-			if ( logHelper_ )
-				logHelper_->error( std::string( "xc_domain_hvm_getcontext_partial() failed: " ) +
-				                   strerror( errno ) );
-
-			return false;
-		} else
-			hwMtrrInit = true;
-	}
-
-	uint8_t def_type = hwMtrr.msr_mtrr_def_type & 0xff;
-	uint8_t enabled = hwMtrr.msr_mtrr_def_type >> 10;
-	uint8_t *u8_fixed = ( uint8_t * )hwMtrr.msr_mtrr_fixed;
-
-	if ( !( enabled & 0x2 ) ) {
-		type = MTRR_TYPE_UNCACHABLE;
-		return true;
-	}
-
-	if ( ( guestAddress < 0x100000 ) && ( enabled & 1 ) ) {
-
-		/* Fixed range MTRR takes effective */
-		int32_t addr = ( uint32_t )guestAddress;
-
-		if ( addr < 0x80000 ) {
-			seg = ( addr >> 16 );
-			return u8_fixed[seg];
-		} else if ( addr < 0xc0000 ) {
-			seg = ( addr - 0x80000 ) >> 14;
-			index = ( seg >> 3 ) + 1;
-			seg &= 7; /* select 0-7 segments */
-			return u8_fixed[index * 8 + seg];
-		} else {
-			/* 0xC0000 --- 0x100000 */
-			seg = ( addr - 0xc0000 ) >> 12;
-			index = ( seg >> 3 ) + 3;
-			seg &= 7; /* select 0-7 segments */
-			return u8_fixed[index * 8 + seg];
-		}
-	}
-
-	uint8_t num_var_ranges = hwMtrr.msr_mtrr_cap & 0xff;
-	bool overlapped = isVarMtrrOverlapped( hwMtrr );
-
-	for ( seg = 0; seg < num_var_ranges; ++seg ) {
-		uint64_t phys_base = hwMtrr.msr_mtrr_var[seg * 2];
-		uint64_t phys_mask = hwMtrr.msr_mtrr_var[seg * 2 + 1];
-
-		if ( phys_mask & ( 1 << MTRR_PHYSMASK_VALID_BIT ) ) {
-			if ( ( ( uint64_t )guestAddress & phys_mask ) >> MTRR_PHYSMASK_SHIFT ==
-			     ( phys_base & phys_mask ) >> MTRR_PHYSMASK_SHIFT ) {
-
-				if ( overlapped ) {
-					overlap_mtrr |= 1 << ( phys_base & MTRR_PHYSBASE_TYPE_MASK );
-					overlap_mtrr_pos = phys_base & MTRR_PHYSBASE_TYPE_MASK;
-				} else
-					return phys_base & MTRR_PHYSBASE_TYPE_MASK;
-			}
-		}
-	}
-
-	if ( overlap_mtrr == 0 ) {
-		type = def_type;
-		return true;
-	}
-
-	if ( !( overlap_mtrr & ~( ( ( uint8_t )1 ) << overlap_mtrr_pos ) ) ) {
-		type = overlap_mtrr_pos;
-		return true;
-	}
-
-	if ( overlap_mtrr & 0x1 ) {
-		/* Two or more match, one is UC. */
-		type = MTRR_TYPE_UNCACHABLE;
-		return true;
-	}
-
-	if ( !( overlap_mtrr & 0xaf ) ) {
-		/* Two or more match, WT and WB. */
-		type = MTRR_TYPE_WRTHROUGH;
-		return true;
-	}
-
-	/* Behaviour is undefined, but return the last overlapped type. */
-	type = overlap_mtrr_pos;
-	return true;
-}
-
 bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute )
 {
 	xenmem_access_t memaccess = XENMEM_access_n;
@@ -314,12 +206,14 @@ bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, b
 #ifdef XENMEM_access_op_set_access_multi
 			delayedMemAccessWrite_[gfn] = memaccess;
 #else
+#warning "XENMEM_access_op_set_access_multi is not available!"
 			xc_set_mem_access( xci_, domain_, memaccess, gfn, 1 );
 #endif
 		} else {
 #ifdef HVMOP_altp2m_set_mem_access_multi
 			delayedMemAccessWrite_[gfn] = memaccess;
 #else
+#warning "HVMOP_altp2m_set_mem_access_multi is not available!"
 			xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, memaccess );
 #endif
 		}
@@ -446,6 +340,10 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 
 	if ( regsCache_.valid_ && regsCache_.vcpu_ == static_cast<int>( vcpu ) ) {
 		regs = regsCache_.registers_;
+
+		if ( !getPAT( vcpu, regs.msr_pat ) )
+			return false;
+
 		return true;
 	}
 
@@ -473,12 +371,16 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 		return false;
 	}
 
+	if ( !getPAT( vcpu, regs.msr_pat ) )
+		return false;
+
 	regs.sysenter_cs = hwCpu.sysenter_cs;
 	regs.sysenter_esp = hwCpu.sysenter_esp;
 	regs.sysenter_eip = hwCpu.sysenter_eip;
 	regs.msr_efer = hwCpu.msr_efer;
 	regs.msr_star = hwCpu.msr_star;
 	regs.msr_lstar = hwCpu.msr_lstar;
+	regs.msr_cstar = hwCpu.msr_cstar;
 	regs.fs_base = hwCpu.fs_base;
 	regs.gs_base = hwCpu.gs_base;
 	regs.idtr_base = hwCpu.idtr_base;
@@ -531,6 +433,7 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 	regs.gs_limit = hwCpu.gs_limit;
 	regs.gs_sel = hwCpu.gs_sel;
 	regs.gs_arbytes = hwCpu.gs_arbytes;
+	regs.shadow_gs = hwCpu.shadow_gs;
 
 	int32_t x86Mode = guestX86Mode( regs );
 
@@ -577,32 +480,6 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 		regsCache_.registers_ = regs;
 		regsCache_.valid_ = true;
 	}
-
-	return true;
-}
-
-bool XenDriver::mtrrs( unsigned short vcpu, Mtrrs &m ) const
-{
-	struct hvm_hw_mtrr hwMtrr;
-
-	StatsCollector::instance().incStat( "partialContext" );
-	StatsCollector::instance().incStat( "partialMtrr" );
-
-	if ( xc_domain_hvm_getcontext_partial( xci_, domain_, HVM_SAVE_CODE( MTRR ), vcpu, &hwMtrr,
-	                                       sizeof( hwMtrr ) ) != 0 ) {
-		if ( logHelper_ ) {
-			std::stringstream ss;
-			ss << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu << ") failed: " << strerror( errno );
-
-			logHelper_->error( ss.str() );
-		}
-
-		return false;
-	}
-
-	m.pat = hwMtrr.msr_pat_cr;
-	m.cap = hwMtrr.msr_mtrr_cap;
-	m.def_type = hwMtrr.msr_mtrr_def_type;
 
 	return true;
 }
@@ -729,43 +606,6 @@ bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, si
 	return true;
 }
 
-bool XenDriver::enableMsrExit( unsigned int msr, bool &oldValue )
-{
-	oldValue = false;
-
-	try {
-
-		if ( msrs_.find( msr ) != msrs_.end() ) {
-			oldValue = true;
-			return true;
-		}
-
-		msrs_.insert( msr );
-	} catch ( ... ) {
-		return false;
-	}
-
-	return true;
-}
-
-bool XenDriver::disableMsrExit( unsigned int msr, bool &oldValue )
-{
-	oldValue = false;
-
-	try {
-		std::set<unsigned int>::iterator it = msrs_.find( msr );
-
-		if ( it != msrs_.end() ) {
-			msrs_.erase( it );
-			oldValue = true;
-		}
-	} catch ( ... ) {
-		return false;
-	}
-
-	return true;
-}
-
 bool XenDriver::shutdown()
 {
 	if ( xc_domain_shutdown( xci_, domain_, SHUTDOWN_poweroff ) ) {
@@ -781,7 +621,7 @@ bool XenDriver::shutdown()
 
 void XenDriver::init( domid_t domain, bool hvmOnly )
 {
-	xci_ = xc_interface_open( NULL, NULL, 0 );
+	xci_ = xc_interface_open( nullptr, nullptr, 0 );
 
 	if ( !xci_ ) {
 		cleanup();
@@ -805,6 +645,8 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 		throw std::runtime_error( ss.str() );
 	}
 
+	// xc_domain_set_cores_per_socket( xci_, domain, 10 );
+
 	xen_capabilities_info_t caps;
 
 	if ( xc_version( xci_, XENVER_capabilities, &caps /*, sizeof( caps ) */ ) != 0 ) {
@@ -812,7 +654,7 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 		throw std::runtime_error( "Could not get Xen capabilities" );
 	}
 
-	long xenVersion = xc_version( xci_, XENVER_version, NULL );
+	long xenVersion = xc_version( xci_, XENVER_version, nullptr );
 	xenVersionMajor_ = xenVersion >> 16;
 	xenVersionMinor_ = xenVersion & 0xFF;
 
@@ -826,11 +668,6 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 			throw std::runtime_error( "xs_open() failed" );
 		}
 	}
-
-	physAddr_ = 36;
-
-	if ( cpuid_eax( 0x80000000 ) >= 0x80000008 )
-		physAddr_ = ( uint8_t )cpuid_eax( 0x80000008 );
 
 	pageCache_.init( xci_, domain );
 
@@ -855,6 +692,18 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 	}
 
 	free( path );
+
+	/*
+	xen_pfn_t max_gpfn = 0;
+
+	xc_domain_maximum_gpfn( xci_, domain_, &max_gpfn );
+
+	if ( logHelper_ ) {
+		ss.str("");
+		ss << "maximum_gpfn: 0x" << std::hex << max_gpfn;
+		logHelper_->debug(ss.str());
+	}
+	*/
 
 	if ( useAltP2m_ ) {
 		if ( xc_altp2m_set_domain_state( xci_, domain_, 1 ) < 0 ) {
@@ -895,16 +744,16 @@ void XenDriver::cleanup()
 
 	if ( xci_ ) {
 		xc_interface_close( xci_ );
-		xci_ = NULL;
+		xci_ = nullptr;
 	}
 
 	if ( xsh_ ) {
 		xs_close( xsh_ );
-		xsh_ = NULL;
+		xsh_ = nullptr;
 	}
 }
 
-domid_t XenDriver::getDomainId( const std::string &domainName )
+domid_t XenDriver::getDomainId( const std::string &uuid )
 {
 	domid_t domainId = 0;
 
@@ -922,20 +771,32 @@ domid_t XenDriver::getDomainId( const std::string &domainName )
 
 	if ( size == 0 ) {
 		cleanup();
-		throw std::runtime_error( std::string( "Failed to retrieve domain ID by name [" ) + domainName + "]: " +
+		throw std::runtime_error( std::string( "Failed to retrieve domain ID by UUID [" ) + uuid + "]: " +
 		                          strerror( errno ) );
 	}
 
 	for ( unsigned int i = 0; i < size; ++i ) {
 
-		std::string tmp = std::string( "/local/domain/" ) + domains[i] + "/name";
+		std::string tmp = std::string( "/local/domain/" ) + domains[i] + "/vm";
 
-		char *nameCandidate = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, tmp.c_str(), NULL, 1 ) );
+		char *path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, tmp.c_str(), nullptr, 1 ) );
 
-		if ( nameCandidate != NULL && domainName == nameCandidate )
-			domainId = atoi( domains[i] );
+		if ( path && path[0] != '\0' ) {
+			tmp = std::string( path ) + "/uuid";
 
-		free( nameCandidate );
+			char *tmpUuid = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, tmp.c_str(), nullptr, 1 ) );
+
+			if ( tmpUuid && uuid == tmpUuid ) {
+				domainId = atoi( domains[i] );
+				free( tmpUuid );
+				free( path );
+				break;
+			}
+
+			free( tmpUuid );
+		}
+
+		free( path );
 	}
 
 	free( domains );
@@ -950,12 +811,12 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 	if ( ( address & XC_PAGE_MASK ) != ( ( address + length - 1 ) & XC_PAGE_MASK ) )
 		return MAP_INVALID_PARAMETER;
 
-	pointer = NULL;
+	pointer = nullptr;
 	unsigned long gfn = paddr_to_pfn( address );
 
 	try {
 
-		void *mapped = NULL;
+		void *mapped = nullptr;
 
 #ifdef DISABLE_PAGE_CACHE
 		StatsCollector::instance().incStat( "xcMapPage" );
@@ -1027,33 +888,27 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
 		return MAP_INVALID_PARAMETER;
 
 	unsigned long gfn;
-	pointer = NULL;
+	pointer = nullptr;
 
 	try {
-		std::map<unsigned long long, unsigned long>::const_iterator ait = addressCache_.find( address );
+		gfn = xc_translate_foreign_address( xci_, domain_, vcpu, address );
 
-		if ( ait != addressCache_.end() ) {
-			gfn = ait->second;
-		} else {
-			gfn = xc_translate_foreign_address( xci_, domain_, vcpu, address );
+		if ( gfn == 0 ) {
 
-			if ( gfn == 0 ) {
+			if ( logHelper_ && errno && errno != EADDRNOTAVAIL ) {
+				std::stringstream ss;
 
-				if ( logHelper_ && errno && errno != EADDRNOTAVAIL ) {
-					std::stringstream ss;
+				ss << "xc_translate_foreign_address(0x" << std::setfill( '0' )
+				   << std::setw( 16 ) << std::hex << address << ") (vcpu = " << vcpu
+				   << ") failed: " << strerror( errno );
 
-					ss << "xc_translate_foreign_address(0x" << std::setfill( '0' )
-					   << std::setw( 16 ) << std::hex << address << ") (vcpu = " << vcpu
-					   << ") failed: " << strerror( errno );
-
-					logHelper_->error( ss.str() );
-				}
-
-				return MAP_FAILED_GENERIC;
+				logHelper_->error( ss.str() );
 			}
+
+			return MAP_FAILED_GENERIC;
 		}
 
-		void *mapped = NULL;
+		void *mapped = nullptr;
 
 #ifdef DISABLE_PAGE_CACHE
 		StatsCollector::instance().incStat( "xcMapPage" );
@@ -1097,27 +952,6 @@ bool XenDriver::unmapVirtMem( void *hostPtr )
 	return unmapPhysMem( hostPtr );
 }
 
-bool XenDriver::cacheGuestVirtAddr( unsigned long long address )
-{
-	unsigned long gfn = xc_translate_foreign_address( xci_, domain_, 0, address );
-
-	if ( gfn == 0 ) {
-		if ( logHelper_ && errno && errno != EADDRNOTAVAIL )
-			logHelper_->error( std::string( "xc_translate_foreign_address() failed: " ) +
-			                   strerror( errno ) );
-
-		return false;
-	}
-
-	try {
-		addressCache_[address] = gfn;
-	} catch ( ... ) {
-		return false;
-	}
-
-	return true;
-}
-
 bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_t virtualAddress,
                                   uint32_t errorCode )
 {
@@ -1138,10 +972,10 @@ bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_
 	return true;
 }
 
-bool XenDriver::disableRepOptimizations()
+bool XenDriver::setRepOptimizations( bool enable )
 {
 #ifdef XEN_DOMCTL_MONITOR_OP_EMULATE_EACH_REP
-	if ( xc_monitor_emulate_each_rep( xci_, domain_, 1 ) != 0 ) {
+	if ( xc_monitor_emulate_each_rep( xci_, domain_, enable ? 0 : 1 ) != 0 ) {
 		if ( logHelper_ )
 			logHelper_->error( std::string( "xc_monitor_emulate_each_rep() failed: " ) +
 			                   strerror( errno ) );
@@ -1201,6 +1035,43 @@ bool XenDriver::update()
 bool XenDriver::setPageCacheLimit( size_t limit )
 {
 	return pageCache_.setLimit( limit );
+}
+
+bool XenDriver::getPAT( unsigned short vcpu, uint64_t &pat ) const
+{
+	if ( patInitialized_ ) {
+		pat = msrPat_;
+		return true;
+	}
+
+	StatsCollector::instance().incStat( "partialContext" );
+	StatsCollector::instance().incStat( "partialMtrr" );
+
+	struct hvm_hw_mtrr hwMtrr;
+
+	if ( xc_domain_hvm_getcontext_partial( xci_, domain_, HVM_SAVE_CODE( MTRR ),
+                                               vcpu, &hwMtrr, sizeof( hwMtrr ) ) != 0 ) {
+		if ( logHelper_ ) {
+			std::stringstream ss;
+			ss << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu << ") failed: "
+				<< strerror( errno );
+
+			int savedErrno = errno;
+			logHelper_->error( ss.str() );
+
+			EventHandler *h = handler();
+
+			if ( savedErrno == EINVAL && h )
+				h->handleFatalError();
+		}
+
+		return false;
+	}
+
+	pat = msrPat_ = hwMtrr.msr_pat_cr;
+	patInitialized_ = true;
+
+	return true;
 }
 
 bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
@@ -1298,77 +1169,6 @@ bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size )
 	return true;
 }
 
-unsigned int XenDriver::cpuid_eax( unsigned int op ) const
-{
-	unsigned int eax = 0;
-	unsigned int ebx = 0;
-	unsigned int ecx = 0;
-	unsigned int edx = 0;
-
-	__get_cpuid( op, &eax, &ebx, &ecx, &edx );
-
-	return eax;
-}
-
-void XenDriver::getMtrrRange( uint64_t base_msr, uint64_t mask_msr, uint64_t &base, uint64_t &end ) const
-{
-	uint32_t mask_lo = ( uint32_t )mask_msr;
-	uint32_t mask_hi = ( uint32_t )( mask_msr >> 32 );
-	uint32_t base_lo = ( uint32_t )base_msr;
-	uint32_t base_hi = ( uint32_t )( base_msr >> 32 );
-
-	if ( ( mask_lo & 0x800 ) == 0 ) {
-		/* Invalid (i.e. free) range */
-		base = 0;
-		end = 0;
-		return;
-	}
-
-	uint32_t size_or_mask = ~( ( 1 << ( physAddr_ - XC_PAGE_SHIFT ) ) - 1 );
-
-	/* Work out the shifted address mask. */
-	mask_lo = ( size_or_mask | ( mask_hi << ( 32 - XC_PAGE_SHIFT ) ) | ( mask_lo >> XC_PAGE_SHIFT ) );
-
-	/* This works correctly if size is a power of two (a contiguous range). */
-	uint32_t size = -mask_lo;
-	base = base_hi << ( 32 - XC_PAGE_SHIFT ) | base_lo >> XC_PAGE_SHIFT;
-	end = base + size - 1;
-}
-
-bool XenDriver::isVarMtrrOverlapped( const struct hvm_hw_mtrr &hwMtrr ) const
-{
-	uint64_t phys_base, phys_mask, base_pre, end_pre, base, end;
-	uint8_t num_var_ranges = ( uint8_t )hwMtrr.msr_mtrr_cap;
-
-	for ( int32_t i = 0; i < num_var_ranges; ++i ) {
-
-		uint64_t phys_base_pre = ( ( uint64_t * )hwMtrr.msr_mtrr_var )[i * 2];
-		uint64_t phys_mask_pre = ( ( uint64_t * )hwMtrr.msr_mtrr_var )[i * 2 + 1];
-
-		getMtrrRange( phys_base_pre, phys_mask_pre, base_pre, end_pre );
-
-		for ( int32_t seg = i + 1; seg < num_var_ranges; ++seg ) {
-
-			phys_base = ( ( uint64_t * )hwMtrr.msr_mtrr_var )[seg * 2];
-			phys_mask = ( ( uint64_t * )hwMtrr.msr_mtrr_var )[seg * 2 + 1];
-
-			getMtrrRange( phys_base, phys_mask, base, end );
-
-			if ( ( ( base_pre != end_pre ) && ( base != end ) ) ||
-			     ( ( base >= base_pre ) && ( base <= end_pre ) ) ||
-			     ( ( end >= base_pre ) && ( end <= end_pre ) ) ||
-			     ( ( base_pre >= base ) && ( base_pre <= end ) ) ||
-			     ( ( end_pre >= base ) && ( end_pre <= end ) ) ) {
-
-				/* MTRR is overlapped. */
-				return true;
-			}
-		}
-	}
-
-	return false;
-}
-
 void XenDriver::enableCache( unsigned short vcpu )
 {
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
@@ -1427,17 +1227,17 @@ uint32_t XenDriver::startTime()
 		path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, path1.c_str(), &size, 1 ) );
 
 		if ( path  && path[0] != '\0' )
-			startTime_ = strtoul( path, NULL, 10 );
+			startTime_ = strtoul( path, nullptr, 10 );
 
 		free( path );
-		path = NULL;
+		path = nullptr;
 		size = 0;
 
 		if ( startTime_ == ( uint32_t )-1 ) // XenServer
 			path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, path2.c_str(), &size, 1 ) );
 
 		if ( path  && path[0] != '\0' )
-			startTime_ = strtoul( path, NULL, 10 );
+			startTime_ = strtoul( path, nullptr, 10 );
 	}
 
 	free( path );

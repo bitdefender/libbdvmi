@@ -156,17 +156,17 @@ public:
 
 public:
 	// Found a domain
-	virtual void handleDomainFound( const string &domain )
+	virtual void handleDomainFound( const string &uuid, const string &name )
 	{
-		cout << "A new domain started running: " << domain << endl;
-		hookDomain( domain );
-
+		cout << "A new domain started running: " << name
+			<< ", UUID: " << uuid << endl;
+		hookDomain( uuid );
 	}
 
 	// The domain is no longer running
-	virtual void handleDomainFinished( const string &domain )
+	virtual void handleDomainFinished( const string &uuid )
 	{
-		cout << "Domain finished: " << domain << endl;
+		cout << "Domain finished: " << uuid << endl;
 	}
 
 	virtual void cleanup()
@@ -175,18 +175,19 @@ public:
 	}
 
 private:
-	void hookDomain( const string &domain )
+	void hookDomain( const string &uuid )
 	{
-		auto_ptr<bdvmi::Driver> pd( bf_.driver( domain ) );
-		auto_ptr<bdvmi::EventManager> em( bf_.eventManager( *pd, bdvmi::EventManager::ENABLE_MSR |
-		                                                         bdvmi::EventManager::ENABLE_XSETBV |
-		                                                         bdvmi::EventManager::ENABLE_CR3 ) );
+		unique_ptr<bdvmi::Driver> pd( bf_.driver( uuid ) );
+		unique_ptr<bdvmi::EventManager> em( bf_.eventManager( *pd ) );
 
 		DemoEventHandler deh;
 
 		em->signalStopVar( &stop );
 
 		em->handler( &deh );
+
+		em->enableCrEvents( 0 );
+		em->enableCrEvents( 3 );
 
 		em->waitForEvents();
 	}
@@ -206,9 +207,7 @@ int main()
 		bdvmi::BackendFactory bf( bdvmi::BackendFactory::BACKEND_XEN, &logHelper );
 		DemoDomainHandler ddh( bf );
 
-		// Unique_ptr<T> would have been better, but the user's compiler might not
-		// support C++0x.
-		auto_ptr<bdvmi::DomainWatcher> pdw( bf.domainWatcher() );
+		unique_ptr<bdvmi::DomainWatcher> pdw( bf.domainWatcher() );
 
 		cout << "Registering handler ... " << endl;
 

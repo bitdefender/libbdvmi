@@ -26,14 +26,14 @@
 namespace bdvmi {
 
 XenPageCache::XenPageCache( xc_interface *xci, domid_t domain, LogHelper *logHelper )
-    : xci_( NULL ), domain_( -1 ), cacheLimit_( MAX_CACHE_SIZE_DEFAULT ), logHelper_( logHelper ),
+    : xci_( nullptr ), domain_( -1 ), cacheLimit_( MAX_CACHE_SIZE_DEFAULT ), logHelper_( logHelper ),
       linuxMajVersion_( -1 )
 {
 	init( xci, domain );
 }
 
 XenPageCache::XenPageCache( LogHelper *logHelper )
-    : xci_( NULL ), domain_( -1 ), cacheLimit_( MAX_CACHE_SIZE_DEFAULT ), logHelper_( logHelper ),
+    : xci_( nullptr ), domain_( -1 ), cacheLimit_( MAX_CACHE_SIZE_DEFAULT ), logHelper_( logHelper ),
       linuxMajVersion_( -1 )
 {
 }
@@ -88,7 +88,7 @@ XenPageCache::~XenPageCache()
 MapReturnCode XenPageCache::update( unsigned long gfn, void *&pointer )
 {
 	if ( !xci_ ) {
-		pointer = NULL;
+		pointer = nullptr;
 		return MAP_FAILED_GENERIC;
 	}
 
@@ -122,7 +122,7 @@ void XenPageCache::release( void *pointer )
 MapReturnCode XenPageCache::insertNew( unsigned long gfn, void *&pointer )
 {
 	if ( !xci_ ) {
-		pointer = NULL;
+		pointer = nullptr;
 		return MAP_FAILED_GENERIC;
 	}
 
@@ -150,7 +150,7 @@ MapReturnCode XenPageCache::insertNew( unsigned long gfn, void *&pointer )
 		}
 		*/
 
-		pointer = NULL;
+		pointer = nullptr;
 		return MAP_FAILED_GENERIC;
 	}
 
@@ -166,7 +166,7 @@ MapReturnCode XenPageCache::insertNew( unsigned long gfn, void *&pointer )
 
 		munmap( ci.pointer, XC_PAGE_SIZE );
 
-		pointer = NULL;
+		pointer = nullptr;
 		return MAP_PAGE_NOT_PRESENT;
 	}
 

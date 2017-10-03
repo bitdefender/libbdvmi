@@ -46,28 +46,24 @@ class LogHelper;
 class XenEventManager : public EventManager {
 
 public:
-	XenEventManager( XenDriver &driver, unsigned short handlerFlags, LogHelper *logHelper,
-	                 bool useAltP2m = false );
+	XenEventManager( XenDriver &driver, LogHelper *logHelper, bool useAltP2m = false );
 
 	virtual ~XenEventManager();
 
 public:
-	virtual bool handlerFlags( unsigned short flags );
-
-	virtual unsigned short handlerFlags() const
-	{
-		return handlerFlags_;
-	}
-
 	// Loop waiting for events
 	virtual void waitForEvents();
 
 	// Stop the event loop
 	virtual void stop();
 
-	virtual bool enableMsrEvents( unsigned int msr );
+	virtual bool enableMsrEvents( unsigned int msr, bool &oldValue );
 
-	virtual bool disableMsrEvents( unsigned int msr );
+	virtual bool disableMsrEvents( unsigned int msr, bool &oldValue );
+
+	virtual bool enableCrEvents( unsigned int cr );
+
+	virtual bool disableCrEvents( unsigned int cr );
 
 private:
 	void initXenStore();
@@ -92,6 +88,10 @@ private:
 
 	void setRegisters( vm_event_response_t &rsp );
 
+	bool setCrEvents( unsigned int cr, bool enable );
+
+	uint64_t getMsr( unsigned short vcpu, uint32_t msr ) const;
+
 private:
 	// Don't allow copying for these objects
 	XenEventManager( const XenEventManager & );
@@ -115,12 +115,18 @@ private:
 	bool memAccessOn_;
 	bool evtchnOn_;
 	bool evtchnBindOn_;
-	unsigned short handlerFlags_;
 	bool guestStillRunning_;
 	LogHelper *logHelper_;
 	bool firstReleaseWatch_;
 	bool firstXenServerWatch_;
 	bool useAltP2m_;
+	std::set<unsigned int> enabledCrs_;
+	std::set<unsigned int> enabledMsrs_;
+
+	typedef std::map<uint32_t, uint64_t>                msrs_values_map_t;
+	typedef std::map<unsigned short, msrs_values_map_t> vcpu_msrs_t;
+	vcpu_msrs_t msrOldValueCache_;
+
 #ifdef DEBUG_DUMP_EVENTS
 	std::ofstream eventsFile_;
 #endif

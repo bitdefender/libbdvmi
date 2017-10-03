@@ -34,7 +34,7 @@ public:
 
 private:
 	struct CacheInfo {
-		CacheInfo() : accessed( 0 ), pointer( NULL ), in_use( 1 )
+		CacheInfo() : accessed( 0 ), pointer( nullptr ), in_use( 1 )
 		{
 		}
 
@@ -47,9 +47,9 @@ private:
 	typedef std::map<void *, unsigned long> reverse_cache_t;
 
 public:
-	XenPageCache( xc_interface *xci, domid_t domain, LogHelper *logHelper = NULL );
+	XenPageCache( xc_interface *xci, domid_t domain, LogHelper *logHelper = nullptr );
 
-	XenPageCache( LogHelper *logHelper = NULL );
+	XenPageCache( LogHelper *logHelper = nullptr );
 
 	~XenPageCache();
 

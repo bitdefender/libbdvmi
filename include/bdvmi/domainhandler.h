@@ -29,9 +29,9 @@ public:
 	}
 
 public:
-	virtual void handleDomainFound( const std::string &domain ) = 0;
+	virtual void handleDomainFound( const std::string &uuid, const std::string &name ) = 0;
 
-	virtual void handleDomainFinished( const std::string &domain ) = 0;
+	virtual void handleDomainFinished( const std::string &uuid ) = 0;
 
 	virtual void cleanup() = 0;
 };

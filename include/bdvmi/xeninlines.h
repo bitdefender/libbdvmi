@@ -24,7 +24,7 @@ inline void *xs_read_timeout( struct xs_handle *h, xs_transaction_t t, const cha
 	struct timespec tim, tim2;
 	const long nanosec_sleep = 1000000;
 	float seconds_timeout = timeout;
-	void *ret = NULL;
+	void *ret = nullptr;
 	int saved_errno;
 
 	do {

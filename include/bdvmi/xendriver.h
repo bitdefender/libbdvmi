@@ -61,11 +61,11 @@ public:
 
 public:
 	// Create a XenDriver object with the domain name
-	XenDriver( const std::string &domainName, LogHelper *logHelper = NULL, bool hvmOnly = true,
+	XenDriver( const std::string &uuid, LogHelper *logHelper = nullptr, bool hvmOnly = true,
 	           bool useAltP2m = false );
 
 	// Create a XenDriver object with the domain ID (# xm list)
-	XenDriver( domid_t domain, LogHelper *logHelper = NULL, bool hvmOnly = true, bool useAltP2m = false );
+	XenDriver( domid_t domain, LogHelper *logHelper = nullptr, bool hvmOnly = true, bool useAltP2m = false );
 
 	virtual ~XenDriver();
 
@@ -74,29 +74,15 @@ public:
 
 	virtual bool tscSpeed( unsigned long long &speed ) const;
 
-	virtual bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const;
-
 	virtual bool setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute );
 
 	virtual bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute );
 
 	virtual bool registers( unsigned short vcpu, Registers &regs ) const;
 
-	virtual bool mtrrs( unsigned short vcpu, Mtrrs &m ) const;
-
 	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay );
 
 	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length );
-
-	virtual bool enableMsrExit( unsigned int msr, bool &oldValue );
-
-	virtual bool disableMsrExit( unsigned int msr, bool &oldValue );
-
-	virtual bool isMsrEnabled( unsigned int msr, bool &enabled ) const
-	{
-		enabled = msrs_.find( msr ) != msrs_.end();
-		return true;
-	}
 
 	virtual MapReturnCode mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags,
 	                                        void *&pointer );
@@ -108,12 +94,10 @@ public:
 
 	virtual bool unmapVirtMem( void *hostPtr );
 
-	virtual bool cacheGuestVirtAddr( unsigned long long addr );
-
 	virtual bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
 	                               uint32_t errorCode );
 
-	virtual bool disableRepOptimizations();
+	virtual bool setRepOptimizations( bool enable );
 
 	virtual bool shutdown();
 
@@ -183,22 +167,15 @@ private:
 
 	domid_t getDomainId( const std::string &domainName );
 
-	unsigned int cpuid_eax( unsigned int op ) const;
-
-	bool isVarMtrrOverlapped( const struct hvm_hw_mtrr &hwMtrr ) const;
-
-	void getMtrrRange( uint64_t base_msr, uint64_t mask_msr, uint64_t &base, uint64_t &end ) const;
-
 	bool getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const;
+
+	bool getPAT( unsigned short vcpu, uint64_t &pat ) const;
 
 private:
 	xc_interface *xci_;
 	xs_handle *xsh_;
 	domid_t domain_;
-	unsigned int physAddr_;
-	std::set<unsigned int> msrs_;
 	XenPageCache pageCache_;
-	std::map<unsigned long long, unsigned long> addressCache_;
 	int guestWidth_;
 	LogHelper *logHelper_;
 	std::string uuid_;
@@ -214,6 +191,8 @@ private:
 	int xenVersionMajor_;
 	int xenVersionMinor_;
 	uint32_t startTime_;
+	mutable bool patInitialized_;
+	mutable uint64_t msrPat_;
 };
 
 } // namespace bdvmi

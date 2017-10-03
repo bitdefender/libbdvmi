@@ -36,13 +36,14 @@ protected:
 			STATE_FINISHED
 		};
 
-		DomainInfo( const std::string &n, State s = STATE_NEW )
-		  : name( n ), state( s )
+		DomainInfo( const std::string &u,  State s = STATE_NEW, const std::string &n = "unknown" )
+		  : uuid( u ), state( s ), name( n )
 		{
 		}
 
-		std::string name;
+		std::string uuid;
 		State state;
+		std::string name;
 	};
 
 public:

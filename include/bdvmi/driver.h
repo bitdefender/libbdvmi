@@ -38,6 +38,8 @@ struct Registers {
 	uint64_t msr_efer;
 	uint64_t msr_star;
 	uint64_t msr_lstar;
+	uint64_t msr_pat;
+	uint64_t msr_cstar;
 
 	uint64_t cs_base;
 	uint64_t cs_limit;
@@ -60,6 +62,7 @@ struct Registers {
 	uint64_t gs_limit;
 	uint64_t gs_sel;
 	uint64_t gs_arbytes;
+	uint64_t shadow_gs;
 
 	uint64_t fs_base;
 	uint64_t gs_base;
@@ -97,18 +100,6 @@ struct Registers {
 	GuestX86Mode guest_x86_mode;
 };
 
-struct Mtrrs {
-
-	Mtrrs()
-	{
-		memset( this, 0, sizeof( Mtrrs ) );
-	}
-
-	uint64_t pat;
-	uint64_t cap;
-	uint64_t def_type;
-};
-
 enum MapReturnCode { MAP_SUCCESS, MAP_FAILED_GENERIC, MAP_PAGE_NOT_PRESENT, MAP_INVALID_PARAMETER };
 
 class EventHandler;
@@ -116,7 +107,7 @@ class EventHandler;
 class Driver {
 
 public:
-	Driver( EventHandler *handler = NULL ) : handler_( handler )
+	Driver( EventHandler *handler = nullptr ) : handler_( handler )
 	{
 	}
 
@@ -143,9 +134,6 @@ public:
 	// Get TSC speed
 	virtual bool tscSpeed( unsigned long long &speed ) const = 0;
 
-	// Get MTRR type for guestAddress
-	virtual bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const = 0;
-
 	// Set guest page protection
 	virtual bool setPageProtection( unsigned long long guestAddress, bool read, bool write,
 	                                bool execute ) = 0;
@@ -156,23 +144,11 @@ public:
 	// Get registers
 	virtual bool registers( unsigned short vcpu, Registers &regs ) const = 0;
 
-	// Get Mtrrs
-	virtual bool mtrrs( unsigned short vcpu, Mtrrs &m ) const = 0;
-
 	// Set registers
 	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) = 0;
 
 	// Write to physical address
 	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length ) = 0;
-
-	// Enable monitoring for changes at this MSR address
-	virtual bool enableMsrExit( unsigned int msr, bool &oldValue ) = 0;
-
-	// Disable monitoring for changes at this MSR address
-	virtual bool disableMsrExit( unsigned int msr, bool &oldValue ) = 0;
-
-	// Should we have the introengine look at this MSR address?
-	virtual bool isMsrEnabled( unsigned int msr, bool &enabled ) const = 0;
 
 	virtual MapReturnCode mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags,
 	                                        void *&pointer ) = 0;
@@ -182,14 +158,12 @@ public:
 	virtual MapReturnCode mapVirtMemToHost( unsigned long long address, size_t length, uint32_t flags,
 	                                        unsigned short vcpu, void *&pointer ) = 0;
 
-	virtual bool cacheGuestVirtAddr( unsigned long long addr ) = 0;
-
 	virtual bool unmapVirtMem( void *hostPtr ) = 0;
 
 	virtual bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
 	                               uint32_t errorCode ) = 0;
 
-	virtual bool disableRepOptimizations() = 0;
+	virtual bool setRepOptimizations( bool enable ) = 0;
 
 	virtual bool shutdown() = 0;
 
