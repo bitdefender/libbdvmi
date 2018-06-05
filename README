@@ -1,9 +1,7 @@
 Libbdvmi
 (c) 2015-2018 Bitdefender SRL
 
-
-The Xen version that can be used for testing is 4.6.
-To test the library, please issue:
+Please use Xen 4.6 or newer. To test the library, issue:
 
 $ ./bootstrap
 $ ./configure
