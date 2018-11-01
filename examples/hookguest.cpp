@@ -149,7 +149,7 @@ public:
 class DemoDomainHandler : public bdvmi::DomainHandler {
 
 public:
-	DemoDomainHandler( bdvmi::BackendFactory &bf ) : bf_( bf )
+	DemoDomainHandler( bdvmi::BackendFactory &bf ) : bf_{ bf }
 	{
 	}
 
