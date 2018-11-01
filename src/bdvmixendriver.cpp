@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -15,30 +15,17 @@
 
 #include "bdvmi/eventhandler.h"
 #include "bdvmi/statscollector.h"
-#include "bdvmi/xendriver.h"
 #include "bdvmi/loghelper.h"
-#include "bdvmi/xeninlines.h"
+#include "xcwrapper.h"
+#include "xendriver.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <iomanip>
-#include <sstream>
 #include <stdexcept>
 #include <vector>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <cpuid.h>
-
-extern "C" {
-#include <xen/xen-compat.h>
-#if ( __XEN_LATEST_INTERFACE_VERSION__ < 0x00040600 )
-#error unsupported Xen version
-#endif
-#include <xenstore.h>
-#define private rprivate /* private is a C++ keyword */
-#include <xen/vm_event.h>
-#undef private
-}
 
 // #define DISABLE_PAGE_CACHE
 
@@ -53,8 +40,6 @@ extern "C" {
 #define TRAP_page_fault 14
 #define X86_EVENTTYPE_HW_EXCEPTION 3 /* hardware exception */
 
-#define paddr_to_pfn( pa ) ( ( unsigned long )( ( pa ) >> XC_PAGE_SHIFT ) )
-
 namespace bdvmi {
 
 #ifdef DISABLE_PAGE_CACHE
@@ -63,33 +48,32 @@ static bool check_page( void *addr )
 	unsigned char vec[1] = {};
 
 	// The page is not present or otherwise unavailable
-	if ( mincore( addr, XC_PAGE_SIZE, vec ) < 0 || !( vec[0] & 0x01 ) )
+	if ( mincore( addr, XC::pageSize, vec ) < 0 || !( vec[0] & 0x01 ) )
 		return false;
 
 	return true;
 }
 #endif
 
+using namespace std::placeholders;
+
 XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
-    : xci_( nullptr ), xsh_( nullptr ), domain_( domain ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
-      useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false ), xenVersionMajor_( 0 ), xenVersionMinor_( 0 ),
-      startTime_( -1 ), patInitialized_( false ), msrPat_( 0 )
+    : Driver{ nullptr, logHelper }, domain_{ domain }, pageCache_{ *this, logHelper },
+      altp2mState_{ useAltP2m ? new XenAltp2mDomainState{ xc_, domain } : nullptr }
 {
+	if ( altp2mState_ )
+		setMemAccess_ = [this]( const MemAccessMap &map ) {
+			return xc_.altp2mSetMemAccess( domain_, altp2mViewId_, map );
+		};
+	else
+		setMemAccess_ = [this]( const MemAccessMap &map ) { return xc_.setMemAccess( domain_, map ); };
+
 	init( domain, hvmOnly );
 }
 
 XenDriver::XenDriver( const std::string &uuid, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
-    : xci_( nullptr ), xsh_( nullptr ), pageCache_( logHelper ), guestWidth_( 8 ), logHelper_( logHelper ),
-      useAltP2m_( useAltP2m ), altp2mViewId_( 0 ), update_( false ), xenVersionMajor_( 0 ), xenVersionMinor_( 0 ),
-      startTime_( -1 ), patInitialized_( false ), msrPat_( 0 )
+    : XenDriver{ XenDriver::getDomainId( uuid ), logHelper, hvmOnly, useAltP2m }
 {
-	domain_ = getDomainId( uuid );
-	init( domain_, hvmOnly );
-}
-
-XenDriver::~XenDriver()
-{
-	cleanup();
 }
 
 #define hvm_long_mode_enabled( regs ) ( regs.msr_efer & EFER_LMA )
@@ -97,10 +81,10 @@ XenDriver::~XenDriver()
 int32_t XenDriver::guestX86Mode( const Registers &regs )
 {
 	if ( !( regs.cr0 & X86_CR0_PE ) )
-		return 0;
+		return 2;
 
 	if ( regs.rflags & X86_EFLAGS_VM )
-		return 1;
+		return 2;
 
 	if ( hvm_long_mode_enabled( regs ) && ( regs.cs_arbytes & CS_AR_BYTES_L ) )
 		return 8;
@@ -110,15 +94,12 @@ int32_t XenDriver::guestX86Mode( const Registers &regs )
 
 bool XenDriver::cpuCount( unsigned int &count ) const
 {
-	xc_dominfo_t info;
+	XenDomainInfo info;
 
 	StatsCollector::instance().incStat( "xcDomainInfo" );
 
-	if ( xc_domain_getinfo( xci_, domain_, 1, &info ) != 1 ) {
-
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_getinfo() failed: " ) + strerror( errno ) );
-
+	if ( xc_.domainGetInfo( domain_, info ) != 1 ) {
+		LOG_ERROR( logHelper_, "xc_domain_getinfo() failed: ", strerror( errno ) );
 		return false;
 	}
 
@@ -135,10 +116,8 @@ bool XenDriver::tscSpeed( unsigned long long &speed ) const
 
 	StatsCollector::instance().incStat( "xcTscInfo" );
 
-	if ( xc_domain_get_tsc_info( xci_, domain_, &tsc_mode, &elapsed_nsec, &gtsc_khz, &incarnation ) != 0 ) {
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_get_tsc_info() failed: " ) + strerror( errno ) );
-
+	if ( xc_.domainGetTscInfo( domain_, &tsc_mode, &elapsed_nsec, &gtsc_khz, &incarnation ) != 0 ) {
+		LOG_ERROR( logHelper_, "xc_domain_get_tsc_info() failed: ", strerror( errno ) );
 		return false;
 	}
 
@@ -147,142 +126,30 @@ bool XenDriver::tscSpeed( unsigned long long &speed ) const
 	return true;
 }
 
-bool XenDriver::setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute )
+bool XenDriver::setPageProtectionImpl( const MemAccessMap &accessMap )
 {
-	xenmem_access_t memaccess = XENMEM_access_n;
+	if ( accessMap.empty() )
+		return true;
 
-	/*
-	 * The Intel SDM says:
-	 *
-	 * AN EPT misconfiguration occurs if any of the following is identified while translating
-	 * a guest-physical address:
-	 *
-	 * * The value of bits 2:0 of an EPT paging-structure entry is either 010b (write-only)
-	 *   or 110b (write/execute).
-	 *
-	 */
-	if ( write && !read ) {
-		if ( logHelper_ ) {
-			std::stringstream ss;
-			ss << "Attempted to set GPA " << std::hex << std::showbase << guestAddress
-				<< " " << ( read ? "r" : "-" ) << ( write ? "w" : "-" )
-				<< ( execute ? "x" : "-" );
-
-			logHelper_->error( ss.str() );
-		}
-
+	if ( setMemAccess_( accessMap ) ) {
+		LOG_ERROR( logHelper_, "XenDriver::setPageProtectionImpl() failed: ", strerror( errno ) );
 		return false;
-	}
-
-	if ( read && !write && !execute )
-		memaccess = XENMEM_access_r;
-
-	else if ( !read && write && !execute )
-		memaccess = XENMEM_access_w;
-
-	else if ( !read && !write && execute )
-		memaccess = XENMEM_access_x;
-
-	else if ( read && write && !execute )
-		memaccess = XENMEM_access_rw;
-
-	else if ( read && !write && execute )
-		memaccess = XENMEM_access_rx;
-
-	else if ( !read && write && execute )
-		memaccess = XENMEM_access_wx;
-
-	else if ( read && write && execute )
-		memaccess = XENMEM_access_rwx;
-
-	unsigned long gfn = paddr_to_pfn( guestAddress );
-
-	{
-		std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
-
-		memAccessCache_[gfn] = memaccess;
-
-		if ( !useAltP2m_ ) {
-#ifdef XENMEM_access_op_set_access_multi
-			delayedMemAccessWrite_[gfn] = memaccess;
-#else
-#warning "XENMEM_access_op_set_access_multi is not available!"
-			xc_set_mem_access( xci_, domain_, memaccess, gfn, 1 );
-#endif
-		} else {
-#ifdef HVMOP_altp2m_set_mem_access_multi
-			delayedMemAccessWrite_[gfn] = memaccess;
-#else
-#warning "HVMOP_altp2m_set_mem_access_multi is not available!"
-			xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, memaccess );
-#endif
-		}
 	}
 
 	return true;
 }
 
-void XenDriver::flushPageProtections()
+bool XenDriver::getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
 {
-	int rc = 0;
-
-	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
-
-	if ( delayedMemAccessWrite_.empty() )
-		return;
-
-	std::vector<uint8_t> access;
-	std::vector<uint64_t> gfns;
-
-	for ( auto &&item : delayedMemAccessWrite_ ) {
-		access.push_back( item.second );
-		gfns.push_back( item.first );
-	}
-
-	StatsCollector::instance().incStat( "xcSetMemAccessMulti" );
-
-	if ( !useAltP2m_ ) {
-#ifdef XENMEM_access_op_set_access_multi
-		rc = xc_set_mem_access_multi( xci_, domain_, &access[0], &gfns[0], gfns.size() );
-#endif
-	} else {
-#ifdef HVMOP_altp2m_set_mem_access_multi
-		rc = xc_altp2m_set_mem_access_multi( xci_, domain_, altp2mViewId_, &access[0], &gfns[0], gfns.size() );
-#endif
-	}
-
-	if ( rc && logHelper_ )
-		logHelper_->error( std::string( "xc_set_mem_access_multi() failed: " ) + strerror( errno ) );
-
-	delayedMemAccessWrite_.clear();
-}
-
-bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
-{
-	bool cached = false;
 	xenmem_access_t memaccess;
-	unsigned long gfn = paddr_to_pfn( guestAddress );
+	unsigned long   gfn = gpa_to_gfn( guestAddress );
 
-	{
-		std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
+	StatsCollector::instance().incStat( "xcGetMemAccess" );
 
-		auto it = memAccessCache_.find( gfn );
-		if ( it != memAccessCache_.end() ) {
-			memaccess = it->second;
-			cached = true;
-		}
-	}
-
-	if ( !cached ) {
-		StatsCollector::instance().incStat( "xcGetMemAccess" );
-
-		if ( xc_get_mem_access( xci_, domain_, gfn, &memaccess ) ) {
-
-			if ( logHelper_ )
-				logHelper_->error( std::string( "xc_get_mem_access() failed: " ) + strerror( errno ) );
-
-			return false;
-		}
+	if ( xc_.getMemAccess( domain_, gfn, &memaccess ) ) {
+		if ( errno != ESRCH )
+			LOG_ERROR( logHelper_, "xc_get_mem_access() failed: ", strerror( errno ) );
+		return false;
 	}
 
 	read = write = execute = false;
@@ -325,18 +192,14 @@ bool XenDriver::getPageProtection( unsigned long long guestAddress, bool &read, 
 			break;
 	}
 
-	if ( !cached ) {
-		std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
-
-		memAccessCache_[gfn] = memaccess;
-	}
-
 	return true;
 }
 
 bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 {
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
+
+	regs = Registers(); // Fill it up with default values.
 
 	if ( regsCache_.valid_ && regsCache_.vcpu_ == static_cast<int>( vcpu ) ) {
 		regs = regsCache_.registers_;
@@ -352,88 +215,86 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 
 	struct hvm_hw_cpu hwCpu;
 
-	if ( xc_domain_hvm_getcontext_partial( xci_, domain_, HVM_SAVE_CODE( CPU ), vcpu, &hwCpu, sizeof( hwCpu ) ) !=
-	     0 ) {
+	if ( xc_.domainHvmGetContextPartial( domain_, HVM_SAVE_CODE( CPU ), vcpu, &hwCpu, sizeof( hwCpu ) ) != 0 ) {
+		EventHandler *h          = handler();
+		int           savedErrno = errno;
 
-		if ( logHelper_ ) {
-			std::stringstream ss;
-			ss << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu << ") failed: " << strerror( errno );
+		LOG_ERROR( logHelper_, "xc_domain_hvm_getcontext_partial() (vcpu = ", vcpu, ") failed: ",
+		           strerror( errno ) );
 
-			int savedErrno = errno;
-			logHelper_->error( ss.str() );
+		if ( savedErrno == EINVAL && h )
+			h->handleFatalError();
 
-			EventHandler *h = handler();
-
-			if ( savedErrno == EINVAL && h )
-				h->handleFatalError();
-		}
-
-		return false;
+		// If errno is ENODATA, it means that the VCPU is offline (Xen convention), so no data could
+		// be retrieved for it. Introcore insists that it wants to be able to query data for offline
+		// (but valid) VCPUs as well, and Xen insists that this query should not be allowed, hence
+		// this compromise: in that case, serve some default values.
+		return savedErrno == ENODATA;
 	}
 
 	if ( !getPAT( vcpu, regs.msr_pat ) )
 		return false;
 
-	regs.sysenter_cs = hwCpu.sysenter_cs;
+	regs.sysenter_cs  = hwCpu.sysenter_cs;
 	regs.sysenter_esp = hwCpu.sysenter_esp;
 	regs.sysenter_eip = hwCpu.sysenter_eip;
-	regs.msr_efer = hwCpu.msr_efer;
-	regs.msr_star = hwCpu.msr_star;
-	regs.msr_lstar = hwCpu.msr_lstar;
-	regs.msr_cstar = hwCpu.msr_cstar;
-	regs.fs_base = hwCpu.fs_base;
-	regs.gs_base = hwCpu.gs_base;
-	regs.idtr_base = hwCpu.idtr_base;
-	regs.idtr_limit = hwCpu.idtr_limit;
-	regs.gdtr_base = hwCpu.gdtr_base;
-	regs.gdtr_limit = hwCpu.gdtr_limit;
-	regs.rflags = hwCpu.rflags;
-	regs.rax = hwCpu.rax;
-	regs.rcx = hwCpu.rcx;
-	regs.rdx = hwCpu.rdx;
-	regs.rbx = hwCpu.rbx;
-	regs.rsp = hwCpu.rsp;
-	regs.rbp = hwCpu.rbp;
-	regs.rsi = hwCpu.rsi;
-	regs.rdi = hwCpu.rdi;
-	regs.r8 = hwCpu.r8;
-	regs.r9 = hwCpu.r9;
-	regs.r10 = hwCpu.r10;
-	regs.r11 = hwCpu.r11;
-	regs.r12 = hwCpu.r12;
-	regs.r13 = hwCpu.r13;
-	regs.r14 = hwCpu.r14;
-	regs.r15 = hwCpu.r15;
-	regs.rip = hwCpu.rip;
-	regs.cr0 = hwCpu.cr0;
-	regs.cr2 = hwCpu.cr2;
-	regs.cr3 = hwCpu.cr3;
-	regs.cr4 = hwCpu.cr4;
-	regs.cr8 = 0; // can't get this with Xen / userspace
-	regs.cs_arbytes = hwCpu.cs_arbytes;
+	regs.msr_efer     = hwCpu.msr_efer;
+	regs.msr_star     = hwCpu.msr_star;
+	regs.msr_lstar    = hwCpu.msr_lstar;
+	regs.msr_cstar    = hwCpu.msr_cstar;
+	regs.fs_base      = hwCpu.fs_base;
+	regs.gs_base      = hwCpu.gs_base;
+	regs.idtr_base    = hwCpu.idtr_base;
+	regs.idtr_limit   = hwCpu.idtr_limit;
+	regs.gdtr_base    = hwCpu.gdtr_base;
+	regs.gdtr_limit   = hwCpu.gdtr_limit;
+	regs.rflags       = hwCpu.rflags;
+	regs.rax          = hwCpu.rax;
+	regs.rcx          = hwCpu.rcx;
+	regs.rdx          = hwCpu.rdx;
+	regs.rbx          = hwCpu.rbx;
+	regs.rsp          = hwCpu.rsp;
+	regs.rbp          = hwCpu.rbp;
+	regs.rsi          = hwCpu.rsi;
+	regs.rdi          = hwCpu.rdi;
+	regs.r8           = hwCpu.r8;
+	regs.r9           = hwCpu.r9;
+	regs.r10          = hwCpu.r10;
+	regs.r11          = hwCpu.r11;
+	regs.r12          = hwCpu.r12;
+	regs.r13          = hwCpu.r13;
+	regs.r14          = hwCpu.r14;
+	regs.r15          = hwCpu.r15;
+	regs.rip          = hwCpu.rip;
+	regs.cr0          = hwCpu.cr0;
+	regs.cr2          = hwCpu.cr2;
+	regs.cr3          = hwCpu.cr3;
+	regs.cr4          = hwCpu.cr4;
+	regs.cr8          = 0; // can't get this with Xen / userspace
+	regs.cs_arbytes   = hwCpu.cs_arbytes;
 
-	regs.cs_base = hwCpu.cs_base;
-	regs.cs_limit = hwCpu.cs_limit;
-	regs.cs_sel = hwCpu.cs_sel;
-	regs.ss_base = hwCpu.ss_base;
-	regs.ss_limit = hwCpu.ss_limit;
-	regs.ss_sel = hwCpu.ss_sel;
+	regs.cs_base    = hwCpu.cs_base;
+	regs.cs_limit   = hwCpu.cs_limit;
+	regs.cs_sel     = hwCpu.cs_sel;
+	regs.ss_base    = hwCpu.ss_base;
+	regs.ss_limit   = hwCpu.ss_limit;
+	regs.ss_sel     = hwCpu.ss_sel;
 	regs.ss_arbytes = hwCpu.ss_arbytes;
-	regs.ds_base = hwCpu.ds_base;
-	regs.ds_limit = hwCpu.ds_limit;
-	regs.ds_sel = hwCpu.ds_sel;
+	regs.ds_base    = hwCpu.ds_base;
+	regs.ds_limit   = hwCpu.ds_limit;
+	regs.ds_sel     = hwCpu.ds_sel;
 	regs.ds_arbytes = hwCpu.ds_arbytes;
-	regs.es_base = hwCpu.es_base;
-	regs.es_limit = hwCpu.es_limit;
-	regs.es_sel = hwCpu.es_sel;
+	regs.es_base    = hwCpu.es_base;
+	regs.es_limit   = hwCpu.es_limit;
+	regs.es_sel     = hwCpu.es_sel;
 	regs.es_arbytes = hwCpu.es_arbytes;
-	regs.fs_limit = hwCpu.fs_limit;
-	regs.fs_sel = hwCpu.fs_sel;
+	regs.fs_limit   = hwCpu.fs_limit;
+	regs.fs_sel     = hwCpu.fs_sel;
 	regs.fs_arbytes = hwCpu.fs_arbytes;
-	regs.gs_limit = hwCpu.gs_limit;
-	regs.gs_sel = hwCpu.gs_sel;
+	regs.gs_limit   = hwCpu.gs_limit;
+	regs.gs_sel     = hwCpu.gs_sel;
 	regs.gs_arbytes = hwCpu.gs_arbytes;
-	regs.shadow_gs = hwCpu.shadow_gs;
+	regs.shadow_gs  = hwCpu.shadow_gs;
 
 	int32_t x86Mode = guestX86Mode( regs );
 
@@ -464,8 +325,8 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 			regs.rsi = delayedWrite_.registers_.rsi;
 			regs.rdi = delayedWrite_.registers_.rdi;
 
-			regs.r8 = delayedWrite_.registers_.r8;
-			regs.r9 = delayedWrite_.registers_.r9;
+			regs.r8  = delayedWrite_.registers_.r8;
+			regs.r9  = delayedWrite_.registers_.r9;
 			regs.r10 = delayedWrite_.registers_.r10;
 			regs.r11 = delayedWrite_.registers_.r11;
 			regs.r12 = delayedWrite_.registers_.r12;
@@ -474,11 +335,11 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 			regs.r15 = delayedWrite_.registers_.r15;
 
 			regs.rflags = delayedWrite_.registers_.rflags;
-			regs.rip = delayedWrite_.registers_.rip;
+			regs.rip    = delayedWrite_.registers_.rip;
 		}
 
 		regsCache_.registers_ = regs;
-		regsCache_.valid_ = true;
+		regsCache_.valid_     = true;
 	}
 
 	return true;
@@ -489,64 +350,8 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
 
 	if ( !delay ) {
-		vcpu_guest_context_any_t ctxt;
-
-		StatsCollector::instance().incStat( "xcGetVcpuContext" );
-
-		if ( xc_vcpu_getcontext( xci_, domain_, vcpu, &ctxt ) != 0 ) {
-
-			if ( logHelper_ )
-				logHelper_->error( std::string( "xc_vcpu_getcontext() failed: " ) + strerror( errno ) );
-
-			return false;
-		}
-
-		if ( guestWidth_ == 4 ) {
-
-			ctxt.x32.user_regs.eax = regs.rax;
-			ctxt.x32.user_regs.ecx = regs.rcx;
-			ctxt.x32.user_regs.edx = regs.rdx;
-			ctxt.x32.user_regs.ebx = regs.rbx;
-			ctxt.x32.user_regs.esp = regs.rsp;
-			ctxt.x32.user_regs.ebp = regs.rbp;
-			ctxt.x32.user_regs.esi = regs.rsi;
-			ctxt.x32.user_regs.edi = regs.rdi;
-			ctxt.x32.user_regs.eflags = regs.rflags;
-
-			if ( setEip )
-				ctxt.x32.user_regs.eip = regs.rip;
-
-		} else {
-
-			ctxt.x64.user_regs.rax = regs.rax;
-			ctxt.x64.user_regs.rcx = regs.rcx;
-			ctxt.x64.user_regs.rdx = regs.rdx;
-			ctxt.x64.user_regs.rbx = regs.rbx;
-			ctxt.x64.user_regs.rsp = regs.rsp;
-			ctxt.x64.user_regs.rbp = regs.rbp;
-			ctxt.x64.user_regs.rsi = regs.rsi;
-			ctxt.x64.user_regs.rdi = regs.rdi;
-			ctxt.x64.user_regs.r8 = regs.r8;
-			ctxt.x64.user_regs.r9 = regs.r9;
-			ctxt.x64.user_regs.r10 = regs.r10;
-			ctxt.x64.user_regs.r11 = regs.r11;
-			ctxt.x64.user_regs.r12 = regs.r12;
-			ctxt.x64.user_regs.r13 = regs.r13;
-			ctxt.x64.user_regs.r14 = regs.r14;
-			ctxt.x64.user_regs.r15 = regs.r15;
-			ctxt.x64.user_regs.rflags = regs.rflags;
-
-			if ( setEip )
-				ctxt.x64.user_regs.eip = regs.rip;
-		}
-
-		StatsCollector::instance().incStat( "xcSetContext" );
-
-		if ( xc_vcpu_setcontext( xci_, domain_, vcpu, &ctxt ) == -1 ) {
-
-			if ( logHelper_ )
-				logHelper_->error( std::string( "xc_vcpu_setcontext() failed: " ) + strerror( errno ) );
-
+		if ( xc_.vcpuSetRegisters( domain_, vcpu, regs, setEip ) != 0 ) {
+			LOG_ERROR( logHelper_, "xc_vcpu_set_context failed", strerror( errno ) );
 			return false;
 		}
 	} else {
@@ -554,7 +359,6 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 
 		if ( !setEip )
 			delayedWrite_.registers_.rip = regs.rip + 3; // 3 is the size of the VMCALL opcodes
-				// ( ( guestWidth_ == 4 ) ? ctxt.x32.user_regs.eip : ctxt.x64.user_regs.eip );
 
 		delayedWrite_.pending_ = true;
 	}
@@ -569,8 +373,8 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 		regsCache_.registers_.rsi = regs.rsi;
 		regsCache_.registers_.rdi = regs.rdi;
 
-		regsCache_.registers_.r8 = regs.r8;
-		regsCache_.registers_.r9 = regs.r9;
+		regsCache_.registers_.r8  = regs.r8;
+		regsCache_.registers_.r9  = regs.r9;
 		regsCache_.registers_.r10 = regs.r10;
 		regsCache_.registers_.r11 = regs.r11;
 		regsCache_.registers_.r12 = regs.r12;
@@ -587,19 +391,18 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 	return true;
 }
 
-bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, size_t /*length*/ )
+bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, size_t length )
 {
-	unsigned long gfn = paddr_to_pfn( address );
-	unsigned long mfn = paddr_to_pfn( ( unsigned long )buffer );
+	unsigned long gfn = gpa_to_gfn( address );
+
+	if ( length < XC::pageSize )
+		return false;
 
 	StatsCollector::instance().incStat( "xcCopyPage" );
 
 	// Copy the whole page - can't find another way to do it with libxc.
-	if ( xc_copy_to_domain_page( xci_, domain_, gfn, ( const char * )mfn ) ) {
-
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_copy_to_domain_page() failed: " ) + strerror( errno ) );
-
+	if ( xc_.copyToDomainPage( domain_, gfn, static_cast<const char *>( buffer ) ) ) {
+		LOG_ERROR( logHelper_, "xc_copy_to_domain_page() failed: ", strerror( errno ) );
 		return false;
 	}
 
@@ -608,11 +411,8 @@ bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, si
 
 bool XenDriver::shutdown()
 {
-	if ( xc_domain_shutdown( xci_, domain_, SHUTDOWN_poweroff ) ) {
-
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_shutdown() failed: " ) + strerror( errno ) );
-
+	if ( xc_.domainShutdown( domain_, XC::shutdownPoweroff ) ) {
+		LOG_ERROR( logHelper_, "xc_domain_shutdown() failed: ", strerror( errno ) );
 		return false;
 	}
 
@@ -621,71 +421,39 @@ bool XenDriver::shutdown()
 
 void XenDriver::init( domid_t domain, bool hvmOnly )
 {
-	xci_ = xc_interface_open( nullptr, nullptr, 0 );
-
-	if ( !xci_ ) {
-		cleanup();
-		throw std::runtime_error( "xc_interface_open() failed" );
-	}
-
-	xc_dominfo_t info;
+	XenDomainInfo info;
+	XenDomctlInfo domctlInfo;
 
 	StatsCollector::instance().incStat( "xcDomainInfo" );
 
-	if ( xc_domain_getinfo( xci_, domain, 1, &info ) != 1 ) {
-		cleanup();
+	if ( xc_.domainGetInfo( domain_, info ) != 1 && xc_.domainGetInfoList( domain_, domctlInfo ) != 1 )
 		throw std::runtime_error( "xc_domain_getinfo() failed" );
-	}
 
-	std::stringstream ss;
+	if ( hvmOnly && !info.hvm )
+		throw std::runtime_error( "Domain " + std::to_string( domain ) + " is not a HVM guest" );
 
-	if ( hvmOnly && !info.hvm ) {
-		cleanup();
-		ss << "Domain " << domain << " is not a HVM guest";
-		throw std::runtime_error( ss.str() );
-	}
+	if ( domctlInfo.pvh )
+		throw std::runtime_error( "Domain " + std::to_string( domain ) + " is a PVH guest" );
 
-	// xc_domain_set_cores_per_socket( xci_, domain, 10 );
+	// xc_.domainSetCoresPerSocket( domain, 10 );
 
-	xen_capabilities_info_t caps;
-
-	if ( xc_version( xci_, XENVER_capabilities, &caps /*, sizeof( caps ) */ ) != 0 ) {
-		cleanup();
-		throw std::runtime_error( "Could not get Xen capabilities" );
-	}
-
-	long xenVersion = xc_version( xci_, XENVER_version, nullptr );
-	xenVersionMajor_ = xenVersion >> 16;
-	xenVersionMinor_ = xenVersion & 0xFF;
-
-	guestWidth_ = strstr( caps, "x86_64" ) ? 8 : 4;
-
-	if ( !xsh_ ) {
-		xsh_ = xs_open( 0 );
-
-		if ( !xsh_ ) {
-			cleanup();
-			throw std::runtime_error( "xs_open() failed" );
-		}
-	}
-
-	pageCache_.init( xci_, domain );
+	if ( info.shutdown || info.dying )
+		throw std::runtime_error( "Domain " + std::to_string( domain ) +
+		                          " is shutting down / dying, won't hook it" );
 
 	unsigned int size;
 
-	ss.str( "" );
-	ss << "/local/domain/" << domain_ << "/vm";
+	std::string key = "/local/domain/" + std::to_string( domain_ ) + "/vm";
 
-	char *path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), &size, 1 ) );
+	char *path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, key, &size, 1 ) );
 
 	if ( path && path[0] != '\0' ) {
-		ss.str( "" );
-		ss << path << "/uuid";
+		key = std::string( path ) + "/uuid";
 
 		free( path );
 		size = 0;
 
-		path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), &size, 1 ) );
+		path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, key, &size, 1 ) );
 
 		if ( path && path[0] != '\0' )
 			uuid_ = path;
@@ -693,101 +461,37 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 
 	free( path );
 
-	/*
-	xen_pfn_t max_gpfn = 0;
-
-	xc_domain_maximum_gpfn( xci_, domain_, &max_gpfn );
-
-	if ( logHelper_ ) {
-		ss.str("");
-		ss << "maximum_gpfn: 0x" << std::hex << max_gpfn;
-		logHelper_->debug(ss.str());
-	}
-	*/
-
-	if ( useAltP2m_ ) {
-		if ( xc_altp2m_set_domain_state( xci_, domain_, 1 ) < 0 ) {
-			cleanup();
-			throw std::runtime_error( std::string( "[ALTP2M] could not enable altp2m on domain: " ) +
-			                          strerror( errno ) );
-		}
-
-		if ( xc_altp2m_create_view( xci_, domain_, XENMEM_access_rwx, &altp2mViewId_ ) < 0 ) {
-			cleanup();
+	if ( altp2mState_ ) {
+		if ( altp2mState_->createView( XENMEM_access_rwx, altp2mViewId_ ) < 0 )
 			throw std::runtime_error( "[ALTP2M] could not create altp2m view" );
-		}
 
-		xen_pfn_t max_gpfn = 0;
-
-		xc_domain_maximum_gpfn( xci_, domain_, &max_gpfn );
-
-		for ( xen_pfn_t gfn = 0; gfn < max_gpfn; ++gfn )
-			xc_altp2m_set_mem_access( xci_, domain_, altp2mViewId_, gfn, XENMEM_access_rwx );
-
-		if ( xc_altp2m_switch_to_view( xci_, domain_, altp2mViewId_ ) < 0 ) {
-			cleanup();
+		if ( altp2mState_->switchToView( altp2mViewId_ ) < 0 )
 			throw std::runtime_error( "[ALTP2M] could not switch to altp2m view" );
-		}
-	}
-}
-
-void XenDriver::cleanup()
-{
-	if ( useAltP2m_ ) {
-		if ( altp2mViewId_ ) {
-			xc_altp2m_switch_to_view( xci_, domain_, 0 );
-			xc_altp2m_destroy_view( xci_, domain_, altp2mViewId_ );
-		}
-
-		xc_altp2m_set_domain_state( xci_, domain_, 0 );
-	}
-
-	if ( xci_ ) {
-		xc_interface_close( xci_ );
-		xci_ = nullptr;
-	}
-
-	if ( xsh_ ) {
-		xs_close( xsh_ );
-		xsh_ = nullptr;
 	}
 }
 
 domid_t XenDriver::getDomainId( const std::string &uuid )
 {
-	domid_t domainId = 0;
+	domid_t                  domainId = 0;
+	XS                       xs;
+	std::vector<std::string> domains;
 
-	if ( !xsh_ ) {
-		xsh_ = xs_open( 0 );
+	if ( !xs.directory( XS::xbtNull, "/local/domain", domains ) )
+		throw std::runtime_error( "Failed to retrieve domain ID by UUID [" + uuid + "]: " + strerror( errno ) );
 
-		if ( !xsh_ ) {
-			cleanup();
-			throw std::runtime_error( "xs_open() failed" );
-		}
-	}
+	for ( auto &&domain : domains ) {
 
-	unsigned int size = 0;
-	char **domains = xs_directory( xsh_, XBT_NULL, "/local/domain", &size );
+		std::string tmp = "/local/domain/" + domain + "/vm";
 
-	if ( size == 0 ) {
-		cleanup();
-		throw std::runtime_error( std::string( "Failed to retrieve domain ID by UUID [" ) + uuid + "]: " +
-		                          strerror( errno ) );
-	}
-
-	for ( unsigned int i = 0; i < size; ++i ) {
-
-		std::string tmp = std::string( "/local/domain/" ) + domains[i] + "/vm";
-
-		char *path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, tmp.c_str(), nullptr, 1 ) );
+		char *path = static_cast<char *>( xs.readTimeout( XS::xbtNull, tmp, nullptr, 1 ) );
 
 		if ( path && path[0] != '\0' ) {
 			tmp = std::string( path ) + "/uuid";
 
-			char *tmpUuid = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, tmp.c_str(), nullptr, 1 ) );
+			char *tmpUuid = static_cast<char *>( xs.readTimeout( XS::xbtNull, tmp, nullptr, 1 ) );
 
 			if ( tmpUuid && uuid == tmpUuid ) {
-				domainId = atoi( domains[i] );
+				domainId = std::stoi( domain );
 				free( tmpUuid );
 				free( path );
 				break;
@@ -799,8 +503,6 @@ domid_t XenDriver::getDomainId( const std::string &uuid )
 		free( path );
 	}
 
-	free( domains );
-
 	return domainId;
 }
 
@@ -808,34 +510,21 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
                                            void *&pointer )
 {
 	// one-page limit
-	if ( ( address & XC_PAGE_MASK ) != ( ( address + length - 1 ) & XC_PAGE_MASK ) )
+	if ( ( address & XC::pageMask ) != ( ( address + length - 1 ) & XC::pageMask ) )
 		return MAP_INVALID_PARAMETER;
 
-	pointer = nullptr;
-	unsigned long gfn = paddr_to_pfn( address );
+	pointer           = nullptr;
+	unsigned long gfn = gpa_to_gfn( address );
 
 	try {
 
 		void *mapped = nullptr;
 
 #ifdef DISABLE_PAGE_CACHE
-		StatsCollector::instance().incStat( "xcMapPage" );
-
-		mapped = xc_map_foreign_range( xci_, domain_, XC_PAGE_SIZE, PROT_READ | PROT_WRITE, gfn );
-
-		/*
-		if ( !mapped && logHelper_ ) {
-
-		        std::stringstream ss;
-		        ss << "xc_map_foreign_range(0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex << gfn
-		           << ") failed: " << strerror( errno );
-
-		        logHelper_->error( ss.str() );
-		}
-		*/
+		mapped = mapGuestPageImpl( gfn );
 
 		if ( mapped && !check_page( mapped ) ) {
-			munmap( mapped, XC_PAGE_SIZE );
+			munmap( mapped, XC::pageSize );
 			return MAP_PAGE_NOT_PRESENT;
 		}
 #else
@@ -846,19 +535,12 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 #endif
 
 		if ( !mapped ) {
-
-			if ( logHelper_ ) {
-				std::stringstream ss;
-				ss << "address: 0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex << address
-				   << ", length: " << length;
-
-				logHelper_->error( ss.str() );
-			}
-
+			LOG_ERROR( logHelper_, "address: 0x", std::setfill( '0' ), std::setw( 16 ), std::hex, address,
+			           ", length: ", length );
 			return MAP_FAILED_GENERIC;
 		}
 
-		pointer = static_cast<char *>( mapped ) + ( address & ~XC_PAGE_MASK );
+		pointer = static_cast<char *>( mapped ) + ( address & ~XC::pageMask );
 	} catch ( ... ) {
 		return MAP_FAILED_GENERIC;
 	}
@@ -869,10 +551,10 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 bool XenDriver::unmapPhysMem( void *hostPtr )
 {
 	void *map = hostPtr;
-	map = ( void * )( ( long int )map & XC_PAGE_MASK );
+	map       = ( void * )( ( long int )map & XC::pageMask );
 
 #ifdef DISABLE_PAGE_CACHE
-	munmap( map, XC_PAGE_SIZE );
+	munmap( map, XC::pageSize );
 #else
 	pageCache_.release( map );
 #endif
@@ -884,26 +566,20 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
                                            unsigned short vcpu, void *&pointer )
 {
 	// one-page limit
-	if ( ( address & XC_PAGE_MASK ) != ( ( address + length - 1 ) & XC_PAGE_MASK ) )
+	if ( ( address & XC::pageMask ) != ( ( address + length - 1 ) & XC::pageMask ) )
 		return MAP_INVALID_PARAMETER;
 
 	unsigned long gfn;
 	pointer = nullptr;
 
 	try {
-		gfn = xc_translate_foreign_address( xci_, domain_, vcpu, address );
+		gfn = xc_.translateForeignAddress( domain_, vcpu, address );
 
 		if ( gfn == 0 ) {
-
-			if ( logHelper_ && errno && errno != EADDRNOTAVAIL ) {
-				std::stringstream ss;
-
-				ss << "xc_translate_foreign_address(0x" << std::setfill( '0' )
-				   << std::setw( 16 ) << std::hex << address << ") (vcpu = " << vcpu
-				   << ") failed: " << strerror( errno );
-
-				logHelper_->error( ss.str() );
-			}
+			if ( errno && errno != EADDRNOTAVAIL )
+				LOG_ERROR( logHelper_, "xc_translate_foreign_address(0x", std::setfill( '0' ),
+				           std::setw( 16 ), std::hex, address, ") (vcpu = ", vcpu, ") failed: ",
+				           strerror( errno ) );
 
 			return MAP_FAILED_GENERIC;
 		}
@@ -911,12 +587,10 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
 		void *mapped = nullptr;
 
 #ifdef DISABLE_PAGE_CACHE
-		StatsCollector::instance().incStat( "xcMapPage" );
-
-		mapped = xc_map_foreign_range( xci_, domain_, XC_PAGE_SIZE, PROT_READ | PROT_WRITE, gfn );
+		mapped = mapGuestPageImpl( gfn );
 
 		if ( mapped && !check_page( mapped ) ) {
-			munmap( mapped, XC_PAGE_SIZE );
+			munmap( mapped, XC::pageSize );
 			return MAP_PAGE_NOT_PRESENT;
 		}
 #else
@@ -927,19 +601,12 @@ MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t le
 #endif
 
 		if ( !mapped ) {
-
-			if ( logHelper_ ) {
-				std::stringstream ss;
-				ss << "address: 0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex << address
-				   << ", length: " << length;
-
-				logHelper_->error( ss.str() );
-			}
-
+			LOG_ERROR( logHelper_, "address: 0x", std::setfill( '0' ), std::setw( 16 ), std::hex, address,
+			           ", length: ", length );
 			return MAP_FAILED_GENERIC;
 		}
 
-		pointer = static_cast<char *>( mapped ) + ( address & ~XC_PAGE_MASK );
+		pointer = static_cast<char *>( mapped ) + ( address & ~XC::pageMask );
 	} catch ( ... ) {
 		return MAP_FAILED_GENERIC;
 	}
@@ -952,18 +619,15 @@ bool XenDriver::unmapVirtMem( void *hostPtr )
 	return unmapPhysMem( hostPtr );
 }
 
-bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_t virtualAddress,
-                                  uint32_t errorCode )
+bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_t virtualAddress, uint32_t errorCode )
 {
 	// It is assumed that the guest is in user-mode and in the proper
 	// address space for "vcpu" here - otherwise things will likely
 	// explode. If something does explode here, check that those
 	// conditions hold HV-side.
-	if ( xc_hvm_inject_trap( xci_, domain_, vcpu, TRAP_page_fault, X86_EVENTTYPE_HW_EXCEPTION, errorCode, 0,
-	                         virtualAddress /*, addressSpace */ ) != 0 ) {
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_hvm_inject_trap() failed: " ) + strerror( errno ) );
-
+	if ( xc_.hvmInjectTrap( domain_, vcpu, TRAP_page_fault, X86_EVENTTYPE_HW_EXCEPTION, errorCode, 0,
+	                        virtualAddress /*, addressSpace */ ) != 0 ) {
+		LOG_ERROR( logHelper_, "xc_hvm_inject_trap() failed: ", strerror( errno ) );
 		return false;
 	}
 
@@ -974,28 +638,21 @@ bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_
 
 bool XenDriver::setRepOptimizations( bool enable )
 {
-#ifdef XEN_DOMCTL_MONITOR_OP_EMULATE_EACH_REP
-	if ( xc_monitor_emulate_each_rep( xci_, domain_, enable ? 0 : 1 ) != 0 ) {
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_monitor_emulate_each_rep() failed: " ) +
-			                   strerror( errno ) );
+	if ( !xc_.monitorEmulateEachRep )
+		return false;
 
+	if ( xc_.monitorEmulateEachRep( domain_, enable ) != 0 ) {
+		LOG_ERROR( logHelper_, "xc_monitor_emulate_each_rep() failed: ", strerror( errno ) );
 		return false;
 	}
 
 	return true;
-#else
-	return false;
-#endif
 }
 
 bool XenDriver::pause()
 {
-	if ( xc_domain_pause( xci_, domain_ ) != 0 ) {
-
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_pause() failed: " ) + strerror( errno ) );
-
+	if ( xc_.domainPause( domain_ ) != 0 ) {
+		LOG_ERROR( logHelper_, "xc_domain_pause() failed: ", strerror( errno ) );
 		return false;
 	}
 
@@ -1004,11 +661,8 @@ bool XenDriver::pause()
 
 bool XenDriver::unpause()
 {
-	if ( xc_domain_unpause( xci_, domain_ ) != 0 ) {
-
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_unpause() failed: " ) + strerror( errno ) );
-
+	if ( xc_.domainUnpause( domain_ ) != 0 ) {
+		LOG_ERROR( logHelper_, "xc_domain_unpause() failed: ", strerror( errno ) );
 		return false;
 	}
 
@@ -1022,17 +676,16 @@ bool XenDriver::update()
 	if ( !update_ )
 		return true;
 
-	std::stringstream ss;
-	ss << "/local/domain/" << domain_ << "/data/updated";
+	std::string key = "/local/domain/" + std::to_string( domain_ ) + "/data/updated";
 
-	xs_write( xsh_, XBT_NULL, ss.str().c_str(), "now", 3 );
+	xs_.write( XS::xbtNull, key, "now", 3 );
 
 	update_ = false;
 
 	return true;
 }
 
-bool XenDriver::setPageCacheLimit( size_t limit )
+size_t XenDriver::setPageCacheLimit( size_t limit )
 {
 	return pageCache_.setLimit( limit );
 }
@@ -1049,60 +702,53 @@ bool XenDriver::getPAT( unsigned short vcpu, uint64_t &pat ) const
 
 	struct hvm_hw_mtrr hwMtrr;
 
-	if ( xc_domain_hvm_getcontext_partial( xci_, domain_, HVM_SAVE_CODE( MTRR ),
-                                               vcpu, &hwMtrr, sizeof( hwMtrr ) ) != 0 ) {
-		if ( logHelper_ ) {
-			std::stringstream ss;
-			ss << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu << ") failed: "
-				<< strerror( errno );
+	if ( xc_.domainHvmGetContextPartial( domain_, HVM_SAVE_CODE( MTRR ), vcpu, &hwMtrr, sizeof( hwMtrr ) ) != 0 ) {
+		EventHandler *h          = handler();
+		int           savedErrno = errno;
 
-			int savedErrno = errno;
-			logHelper_->error( ss.str() );
+		LOG_ERROR( logHelper_, "xc_domain_hvm_getcontext_partial() (vcpu = ", vcpu, ") failed: ",
+		           strerror( errno ) );
 
-			EventHandler *h = handler();
-
-			if ( savedErrno == EINVAL && h )
-				h->handleFatalError();
-		}
+		if ( savedErrno == EINVAL && h )
+			h->handleFatalError();
 
 		return false;
 	}
 
-	pat = msrPat_ = hwMtrr.msr_pat_cr;
+	pat = msrPat_   = hwMtrr.msr_pat_cr;
 	patInitialized_ = true;
 
 	return true;
 }
 
-bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
+bool XenDriver::getXSAVEInfo( unsigned short vcpu, struct hvm_hw_cpu_xsave &xsaveInfo ) const
 {
-	int ret = xc_domain_pause( xci_, domain_ );
+	int ret = xc_.domainPause( domain_ );
 
 	if ( ret < 0 )
 		return false;
 
 	// Get buffer length (0 argument)
-	ret = xc_domain_hvm_getcontext( xci_, domain_, 0, 0 );
+	ret = xc_.domainHvmGetContext( domain_, 0, 0 );
 
 	if ( ret < 0 ) {
-		xc_domain_unpause( xci_, domain_ );
+		xc_.domainUnpause( domain_ );
 		return false;
 	}
 
-	uint32_t len = ret;
+	uint32_t             len = ret;
 	std::vector<uint8_t> buf( len );
 
-	ret = xc_domain_hvm_getcontext( xci_, domain_, &buf[0], len );
+	ret = xc_.domainHvmGetContext( domain_, &buf[0], len );
 
 	if ( ret < 0 ) {
-		if ( logHelper_ )
-			logHelper_->error( std::string( "xc_domain_hvm_getcontext() failed: " ) + strerror( errno ) );
-		xc_domain_unpause( xci_, domain_ );
+		LOG_ERROR( logHelper_, "xc_domain_hvm_getcontext() failed: ", strerror( errno ) );
+		xc_.domainUnpause( domain_ );
 		return false;
 	}
 
-	uint32_t off = 0;
-	bool found = false;
+	uint32_t off   = 0;
+	bool     found = false;
 
 	while ( off < len ) {
 		struct hvm_save_descriptor *descriptor = ( struct hvm_save_descriptor * )( &buf[0] + off );
@@ -1113,17 +759,29 @@ bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
 			break;
 
 		if ( descriptor->typecode == CPU_XSAVE_CODE && descriptor->instance == vcpu ) {
-			struct hvm_hw_cpu_xsave *hwCpuXSAVE = ( struct hvm_hw_cpu_xsave * )( &buf[0] + off );
-			xcr0 = hwCpuXSAVE->xcr0;
-			found = true;
+			xsaveInfo = *( struct hvm_hw_cpu_xsave * )( &buf[0] + off );
+			found     = true;
+			break;
 		}
 
 		off += descriptor->length;
 	}
 
-	xc_domain_unpause( xci_, domain_ );
+	xc_.domainUnpause( domain_ );
 
 	return found;
+}
+
+bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
+{
+	struct hvm_hw_cpu_xsave xsaveInfo;
+
+	if ( getXSAVEInfo( vcpu, xsaveInfo ) ) {
+		xcr0 = xsaveInfo.xcr0;
+		return true;
+	}
+
+	return false;
 }
 
 #define XCR0_X87 0x00000001 /* x87 FPU/MMX state */
@@ -1131,14 +789,12 @@ bool XenDriver::getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const
 
 bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size )
 {
-	uint64_t featureMask = 0;
+	uint64_t     featureMask = 0;
 	unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
-	uint32_t localSize = 512 + 64;
+	uint32_t     localSize = 512 + 64;
 
 	if ( !getXCR0( vcpu, featureMask ) ) {
-		if ( logHelper_ )
-			logHelper_->error( "could not query XCR0, can't get the XSAVE size" );
-
+		LOG_ERROR( logHelper_, "could not query XCR0, can't get the XSAVE size" );
 		return false;
 	}
 
@@ -1169,17 +825,31 @@ bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size )
 	return true;
 }
 
+bool XenDriver::getXSAVEArea( unsigned short vcpu, void *buffer, size_t bufSize )
+{
+	struct hvm_hw_cpu_xsave xsaveInfo;
+
+	if ( getXSAVEInfo( vcpu, xsaveInfo ) ) {
+		memcpy( buffer, &xsaveInfo.save_area, std::min( bufSize, sizeof( xsaveInfo ) ) );
+		return true;
+	}
+
+	LOG_ERROR( logHelper_, "could not query XSAVE area" );
+
+	return false;
+}
+
 void XenDriver::enableCache( unsigned short vcpu )
 {
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
-	regsCache_.vcpu_ = vcpu;
+	regsCache_.vcpu_  = vcpu;
 	regsCache_.valid_ = false;
 }
 
 void XenDriver::disableCache()
 {
 	std::lock_guard<std::mutex> lock( regsCache_.mutex_ );
-	regsCache_.vcpu_ = -1;
+	regsCache_.vcpu_  = -1;
 	regsCache_.valid_ = false;
 }
 
@@ -1204,29 +874,20 @@ uint32_t XenDriver::startTime()
 		return startTime_;
 
 	unsigned int size = 0;
-	std::stringstream ss;
+	std::string  key  = "/local/domain/" + std::to_string( domain_ ) + "/vm";
 
-	ss << "/local/domain/" << domain_ << "/vm";
-
-	char *path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, ss.str().c_str(), &size, 1 ) );
+	char *path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, key, &size, 1 ) );
 
 	if ( path && path[0] != '\0' ) {
-		ss.str( "" );
-		ss << path << "/start_time";
-
-		std::string path1 = ss.str();
-
-		ss.str( "" );
-		ss << path << "/domains/" << domain_ << "/create-time";
-
-		std::string path2 = ss.str();
+		std::string path1 = std::string( path ) + "/start_time";
+		std::string path2 = std::string( path ) + "/domains/" + std::to_string( domain_ ) + "/create-time";
 
 		free( path );
 		size = 0;
 
-		path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, path1.c_str(), &size, 1 ) );
+		path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, path1, &size, 1 ) );
 
-		if ( path  && path[0] != '\0' )
+		if ( path && path[0] != '\0' )
 			startTime_ = strtoul( path, nullptr, 10 );
 
 		free( path );
@@ -1234,15 +895,32 @@ uint32_t XenDriver::startTime()
 		size = 0;
 
 		if ( startTime_ == ( uint32_t )-1 ) // XenServer
-			path = static_cast<char *>( xs_read_timeout( xsh_, XBT_NULL, path2.c_str(), &size, 1 ) );
+			path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, path2, &size, 1 ) );
 
-		if ( path  && path[0] != '\0' )
+		if ( path && path[0] != '\0' )
 			startTime_ = strtoul( path, nullptr, 10 );
 	}
 
 	free( path );
 
 	return startTime_;
+}
+
+void *XenDriver::mapGuestPageImpl( unsigned long long gfn )
+{
+	StatsCollector::instance().incStat( "xcMapPage" );
+
+	return xc_.mapForeignRange( domain_, XC::pageSize, PROT_READ | PROT_WRITE, gfn );
+}
+
+void XenDriver::unmapGuestPageImpl( void *hostPtr, unsigned long long /* gfn */ )
+{
+	munmap( hostPtr, XC::pageSize );
+}
+
+bool XenDriver::isMsrCached( uint64_t msr ) const
+{
+	return msr != MSR_SHADOW_GS_BASE;
 }
 
 } // namespace bdvmi

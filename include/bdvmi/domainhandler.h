@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -24,16 +24,17 @@ class DomainHandler {
 
 public:
 	// base class, so virtual destructor
-	virtual ~DomainHandler()
-	{
-	}
+	virtual ~DomainHandler() = default;
 
 public:
 	virtual void handleDomainFound( const std::string &uuid, const std::string &name ) = 0;
 
 	virtual void handleDomainFinished( const std::string &uuid ) = 0;
 
-	virtual void cleanup() = 0;
+	// For those backends capable of figuring this out, if introspection is stopped as a
+	// consequence of suspending the domain in which introspection is running then
+	// suspendIntrospectorDomain will be true.
+	virtual void cleanup( bool suspendIntrospectorDomain = false ) = 0;
 };
 
 } // namespace bdvmi

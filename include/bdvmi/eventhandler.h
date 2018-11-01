@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -29,9 +29,7 @@ class EventHandler {
 
 public:
 	// Base class, so virtual destructor.
-	virtual ~EventHandler()
-	{
-	}
+	virtual ~EventHandler() = default;
 
 public:
 	// Callback for CR{0,3,4} write events.
@@ -50,13 +48,13 @@ public:
 	// Callback for VMCALL events.
 	virtual void handleVMCALL( unsigned short vcpu, const Registers &regs ) = 0;
 
-	virtual void handleXSETBV( unsigned short vcpu, uint64_t xcr0 ) = 0;
+	virtual void handleXSETBV( unsigned short vcpu ) = 0;
 
 	// Return false if you want to reinject
 	virtual bool handleBreakpoint( unsigned short vcpu, const Registers &regs, uint64_t gpa ) = 0;
 
-	virtual void handleInterrupt( unsigned short vcpu, const Registers &regs, uint32_t vector,
-	                              uint64_t errorCode, uint64_t cr2 ) = 0;
+	virtual void handleInterrupt( unsigned short vcpu, const Registers &regs, uint32_t vector, uint64_t errorCode,
+	                              uint64_t cr2 ) = 0;
 
 	// Notice that the connection to the guest has been terminated (if guestStillRunning is true
 	// then this has _not_ happened because the guest shut down or has been forcefully terminated).

@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -16,18 +16,10 @@
 #ifndef __BDVMIXENDOMAINWATCHER_H_INCLUDED__
 #define __BDVMIXENDOMAINWATCHER_H_INCLUDED__
 
-#include "domainwatcher.h"
+#include "bdvmi/domainwatcher.h"
+#include "xcwrapper.h"
+#include "xswrapper.h"
 #include <map>
-
-extern "C" {
-#include <xenctrl.h>
-#include <xen/xen-compat.h>
-#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040600
-#error unsupported Xen version
-#endif
-
-#include <xenstore.h>
-}
 
 namespace bdvmi {
 
@@ -37,45 +29,50 @@ class LogHelper;
 class XenDomainWatcher : public DomainWatcher {
 
 public:
-	XenDomainWatcher( LogHelper *logHelper );
+	XenDomainWatcher( sig_atomic_t &sigStop, LogHelper *logHelper );
 
 	virtual ~XenDomainWatcher();
 
 public:
-	virtual bool accessGranted();
+	bool accessGranted() override;
+
+	bool ownUuid( std::string &uuid ) const override
+	{
+		uuid = ownUuid_;
+		return true;
+	}
 
 private:
-	// No copying allowed (class has xsh_ and xci_)
+	// No copying allowed
 	XenDomainWatcher( const XenDomainWatcher & );
 
-	// No copying allowed (class has xsh_ and xci_)
+	// No copying allowed
 	XenDomainWatcher &operator=( const XenDomainWatcher & );
 
 private:
-	virtual bool waitForDomainsOrTimeout( std::list<DomainInfo> &domains, int ms );
+	bool waitForDomainsOrTimeout( std::list<DomainInfo> &domains, int ms ) override;
 
 	bool isSelf( domid_t domain );
 
 	void initControlKey( domid_t domain );
 
-	bool getNewDomains( std::list<DomainInfo> &domains, char **vec );
+	bool getNewDomains( std::list<DomainInfo> &domains );
 
 	std::string uuid( domid_t domain ) const;
 
 private:
-	xs_handle *xsh_;
-	xc_interface *xci_;
-	std::string ownUuid_;
-	std::string controlXenStorePath_;
-	const std::string introduceToken_;
-	const std::string releaseToken_;
-	const std::string controlToken_;
-	const std::string postResumeToken_;
+	mutable XS        xs_;
+	mutable XC        xc_;
+	std::string       ownUuid_;
+	std::string       controlXenStorePath_;
+	const std::string introduceToken_{ "introduce" };
+	const std::string releaseToken_{ "release" };
+	const std::string controlToken_{ "control" };
+	const std::string postResumeToken_{ "post-resume" };
 	std::map<domid_t, std::string> domIds_;
-	LogHelper *logHelper_;
-	bool firstUninitWrite_;
-	domid_t ownId_;
-	bool keyCreated_;
+	LogHelper *       logHelper_;
+	bool              firstUninitWrite_{ false };
+	bool              keyCreated_{ false };
 	std::set<domid_t> preResumeDomains_;
 };
 

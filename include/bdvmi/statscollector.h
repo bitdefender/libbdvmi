@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -25,16 +25,14 @@ namespace bdvmi {
 class StatsCollector {
 
 private:
-	StatsCollector()
-	{
-	}
-
-private:
-	StatsCollector( const StatsCollector & );
-	StatsCollector & operator=( const StatsCollector & );
+	StatsCollector() = default;
 
 public:
-	static StatsCollector & instance();
+	StatsCollector( const StatsCollector & ) = delete;
+	StatsCollector &operator=( const StatsCollector & ) = delete;
+
+public:
+	static StatsCollector &instance();
 
 public:
 	void incStat( const std::string &st );

@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -53,10 +53,9 @@ std::string StatsCollector::dumpStats(int DEBUG_ONLY_PARAM( seconds ) )
 	std::lock_guard<std::mutex> lock( statsMutex_ );
 
 	std::stringstream ss;
-	std::map<std::string, unsigned long>::const_iterator i;
 
-	for ( i = stats_.begin() ; i != stats_.end(); ++i )
-		ss << i->first << ": " << ( double )i->second / seconds << " ";
+	for ( auto &&s : stats_ )
+		ss << s.first << ": " << ( double )s.second / seconds << " ";
 
 	stats_.clear();
 

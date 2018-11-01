@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -14,49 +14,46 @@
 // License along with this library.
 
 #include "bdvmi/backendfactory.h"
-#include "bdvmi/xendriver.h"
-#include "bdvmi/xendomainwatcher.h"
-#include "bdvmi/xeneventmanager.h"
+#include "xendriver.h"
+#include "xendomainwatcher.h"
+#include "xeneventmanager.h"
 #include <stdexcept>
 
 namespace bdvmi {
 
-BackendFactory::BackendFactory( BackendType type, LogHelper *logHelper ) : type_( type ), logHelper_( logHelper )
+BackendFactory::BackendFactory( BackendType type, LogHelper *logHelper ) : type_{ type }, logHelper_{ logHelper }
 {
-	if ( type_ != BACKEND_XEN && type_ != BACKEND_KVM )
+	if ( type_ != BACKEND_XEN )
 		throw std::runtime_error( "Xen and KVM are the only supported backends for now" );
 }
 
-DomainWatcher *BackendFactory::domainWatcher()
+std::unique_ptr<DomainWatcher> BackendFactory::domainWatcher( sig_atomic_t &sigStop )
 {
 	switch ( type_ ) {
 		case BACKEND_XEN:
-			return new XenDomainWatcher( logHelper_ );
-		case BACKEND_KVM:
+			return std::make_unique<XenDomainWatcher>( sigStop, logHelper_ );
 		default:
-			throw std::runtime_error( "Xen is the only supported backend for now" );
+			throw std::runtime_error( "Xen and KVM are the only supported backends for now" );
 	}
 }
 
-Driver *BackendFactory::driver( const std::string &domain, bool watchableOnly )
+std::unique_ptr<Driver> BackendFactory::driver( const std::string &domain, bool watchableOnly )
 {
 	switch ( type_ ) {
 		case BACKEND_XEN:
-			return new XenDriver( domain, logHelper_, watchableOnly );
-		case BACKEND_KVM:
+			return std::make_unique<XenDriver>( domain, logHelper_, watchableOnly );
 		default:
-			throw std::runtime_error( "Xen is the only supported backend for now" );
+			throw std::runtime_error( "Xen and KVM are the only supported backends for now" );
 	}
 }
 
-EventManager *BackendFactory::eventManager( Driver &driver )
+std::unique_ptr<EventManager> BackendFactory::eventManager( Driver &driver, sig_atomic_t &sigStop )
 {
 	switch ( type_ ) {
 		case BACKEND_XEN:
-			return new XenEventManager( dynamic_cast<XenDriver &>( driver ), logHelper_ );
-		case BACKEND_KVM:
+			return std::make_unique<XenEventManager>( dynamic_cast<XenDriver &>( driver ), sigStop, logHelper_ );
 		default:
-			throw std::runtime_error( "Xen is the only supported backend for now" );
+			throw std::runtime_error( "Xen and KVM are the only supported backends for now" );
 	}
 }
 

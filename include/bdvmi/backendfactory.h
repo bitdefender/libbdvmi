@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -16,6 +16,8 @@
 #ifndef __BDVMIBACKENDFACTORY_H_INCLUDED__
 #define __BDVMIBACKENDFACTORY_H_INCLUDED__
 
+#include <memory>
+#include <signal.h>
 #include <string>
 
 namespace bdvmi {
@@ -34,22 +36,19 @@ public:
 	BackendFactory( BackendType type, LogHelper *logHelper = nullptr );
 
 public:
-	DomainWatcher *domainWatcher();
+	std::unique_ptr<DomainWatcher> domainWatcher( sig_atomic_t &sigStop );
 
-	Driver *driver( const std::string &domain, bool watchableOnly = true );
+	std::unique_ptr<Driver> driver( const std::string &domain, bool watchableOnly = true );
 
-	EventManager *eventManager( Driver &driver );
+	std::unique_ptr<EventManager> eventManager( Driver &driver, sig_atomic_t &sigStop );
 
-private:
-	// Prevent copying
-	BackendFactory( const BackendFactory & );
-
-	// Prevent copying
-	BackendFactory &operator=( const BackendFactory & );
+public:
+	BackendFactory( const BackendFactory & ) = delete;
+	BackendFactory &operator=( const BackendFactory & ) = delete;
 
 private:
 	BackendType type_;
-	LogHelper *logHelper_;
+	LogHelper * logHelper_;
 };
 
 } // namespace bdvmi

@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -18,37 +18,35 @@
 
 namespace bdvmi {
 
-DomainWatcher::DomainWatcher() : sigStop_( nullptr ), stop_( false ), handler_( nullptr )
+DomainWatcher::DomainWatcher( sig_atomic_t &sigStop ) : sigStop_{ sigStop }
 {
 }
 
 void DomainWatcher::waitForDomains()
 {
+	int ms = 100;
+
 	for ( ;; ) {
 
-		if ( ( sigStop_ && *sigStop_ ) || stop_ ) {
+		if ( sigStop_ || stop_ ) {
 			if ( handler_ )
-				handler_->cleanup();
+				handler_->cleanup( suspendIntrospectorDomain_ );
 			return;
 		}
 
-		std::list<DomainInfo> domains;
-		int ms = 100;
-
 		try {
+			std::list<DomainInfo> domains;
+
 			if ( waitForDomainsOrTimeout( domains, ms ) ) {
 
-				std::list<DomainInfo>::const_iterator i = domains.begin();
-
-				for ( ; i != domains.end(); ++i ) {
-
+				for ( auto && domain : domains ) {
 					if ( handler_ ) {
-						switch ( i->state ) {
+						switch ( domain.state ) {
 						case DomainInfo::STATE_NEW:
-							handler_->handleDomainFound( i->uuid, i->name );
+							handler_->handleDomainFound( domain.uuid, domain.name );
 							break;
 						case DomainInfo::STATE_FINISHED:
-							handler_->handleDomainFinished( i->uuid );
+							handler_->handleDomainFinished( domain.uuid );
 							break;
 						}
 					}

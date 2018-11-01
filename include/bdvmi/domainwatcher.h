@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -29,34 +29,33 @@ class DomainHandler;
 class DomainWatcher {
 
 protected:
-
 	struct DomainInfo {
-		enum State {
-			STATE_NEW,
-			STATE_FINISHED
-		};
+		enum State { STATE_NEW, STATE_FINISHED };
 
-		DomainInfo( const std::string &u,  State s = STATE_NEW, const std::string &n = "unknown" )
-		  : uuid( u ), state( s ), name( n )
+		DomainInfo( const std::string &u, State s = STATE_NEW, const std::string &n = "unknown" )
+		    : uuid( u ), state( s ), name( n )
 		{
 		}
 
 		std::string uuid;
-		State state;
+		State       state;
 		std::string name;
 	};
 
 public:
-	DomainWatcher();
+	DomainWatcher( sig_atomic_t &sigStop );
 
 	// Base class, so virtual destructor
-	virtual ~DomainWatcher()
-	{
-	}
+	virtual ~DomainWatcher() = default;
 
 public:
 	// Return true if the guest running the application can do introspection
 	virtual bool accessGranted() = 0;
+
+	// Called if (and when) a dedicated child process has fork()ed to handle the domain
+	virtual void forkedHandler( const std::string & /* uuid */, bool /* parent */ = true )
+	{
+	}
 
 	void handler( DomainHandler *h )
 	{
@@ -71,21 +70,23 @@ public:
 	// "Template" pattern - calls waitForDomainOrTimeout()
 	void waitForDomains();
 
-	void signalStopVar( sig_atomic_t *sigStop )
+	virtual void setAuthCookie( const std::string & /* authCookie */ )
 	{
-		sigStop_ = sigStop;
 	}
+
+	virtual bool ownUuid( std::string &uuid ) const = 0;
 
 protected:
 	// Return true if a new domain is up, false for timeout
 	virtual bool waitForDomainsOrTimeout( std::list<DomainInfo> &domains, int ms ) = 0;
 
 protected:
-	sig_atomic_t *sigStop_;
+	sig_atomic_t &sigStop_;
+	bool          suspendIntrospectorDomain_{ false };
 
 private:
-	bool stop_;
-	DomainHandler *handler_;
+	bool           stop_{ false };
+	DomainHandler *handler_{ nullptr };
 };
 
 } // namespace bdvmi

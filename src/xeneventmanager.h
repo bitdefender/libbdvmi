@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -16,27 +16,19 @@
 #ifndef __BDVMIXENEVENTMANAGER_H_INCLUDED__
 #define __BDVMIXENEVENTMANAGER_H_INCLUDED__
 
-#include "eventmanager.h"
+#include "bdvmi/eventmanager.h"
 #include <fstream>
 #include <stdint.h>
 #include <string>
 
 extern "C" {
-#include <xen/xen-compat.h>
-#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040600
-#error unsupported Xen version
-#endif
-
-#include <xenstore.h>
-#include <xenctrl.h>
-#include <xen/hvm/save.h>
-
 #define private rprivate /* private is a C++ keyword */
 #include <xen/vm_event.h>
 #undef private
 }
 
-#include "xeninlines.h"
+#include "xcwrapper.h"
+#include "xswrapper.h"
 
 namespace bdvmi {
 
@@ -46,24 +38,37 @@ class LogHelper;
 class XenEventManager : public EventManager {
 
 public:
-	XenEventManager( XenDriver &driver, LogHelper *logHelper, bool useAltP2m = false );
+	XenEventManager( XenDriver &driver, sig_atomic_t &sigStop, LogHelper *logHelper, bool useAltP2m = false );
 
 	virtual ~XenEventManager();
 
 public:
 	// Loop waiting for events
-	virtual void waitForEvents();
+	void waitForEvents() override;
 
 	// Stop the event loop
-	virtual void stop();
+	void stop() override;
 
-	virtual bool enableMsrEvents( unsigned int msr, bool &oldValue );
+private:
+	bool enableMsrEventsImpl( unsigned int msr ) override;
 
-	virtual bool disableMsrEvents( unsigned int msr, bool &oldValue );
+	bool disableMsrEventsImpl( unsigned int msr ) override;
 
-	virtual bool enableCrEvents( unsigned int cr );
+	bool enableCrEventsImpl( unsigned int cr ) override;
 
-	virtual bool disableCrEvents( unsigned int cr );
+	bool disableCrEventsImpl( unsigned int cr ) override;
+
+	bool enableXSETBVEventsImpl() override;
+
+	bool disableXSETBVEventsImpl() override;
+
+	bool enableBreakpointEventsImpl() override;
+
+	bool disableBreakpointEventsImpl() override;
+
+	bool enableVMCALLEventsImpl() override;
+
+	bool disableVMCALLEventsImpl() override;
 
 private:
 	void initXenStore();
@@ -82,7 +87,7 @@ private:
 
 	void resumePage();
 
-	std::string uuid();
+	std::string uuid() override;
 
 	void cleanup();
 
@@ -100,31 +105,30 @@ private:
 	XenEventManager &operator=( const XenEventManager & );
 
 private:
-	XenDriver &driver_;
-	xc_interface *xci_;
-	domid_t domain_;
-	bool stop_;
-	xc_evtchn *xce_;
-	int port_;
-	xs_handle *xsh_;
-	uint32_t evtchnPort_;
+	XenDriver &          driver_;
+	XC &                 xc_;
+	domid_t              domain_;
+	bool                 stop_{ false };
+	xc_evtchn *          xce_{ nullptr };
+	int                  port_{ -1 };
+	XS                   xs_;
+	uint32_t             evtchnPort_{ 0 };
 	vm_event_back_ring_t backRing_;
-	void *ringPage_;
-	std::string watchToken_;
-	std::string controlXenStorePath_;
-	bool memAccessOn_;
-	bool evtchnOn_;
-	bool evtchnBindOn_;
-	bool guestStillRunning_;
-	LogHelper *logHelper_;
-	bool firstReleaseWatch_;
-	bool firstXenServerWatch_;
-	bool useAltP2m_;
-	std::set<unsigned int> enabledCrs_;
-	std::set<unsigned int> enabledMsrs_;
+	void *               ringPage_{ nullptr };
+	std::string          watchToken_;
+	std::string          controlXenStorePath_;
+	bool                 memAccessOn_{ false };
+	bool                 evtchnOn_{ false };
+	bool                 evtchnBindOn_{ false };
+	bool                 guestStillRunning_{ true };
+	LogHelper *          logHelper_;
+	bool                 firstReleaseWatch_{ true };
+	bool                 firstXenServerWatch_{ true };
+	bool                 useAltP2m_;
+	bool                 foundEvents_{ false };
 
-	typedef std::map<uint32_t, uint64_t>                msrs_values_map_t;
-	typedef std::map<unsigned short, msrs_values_map_t> vcpu_msrs_t;
+	using msrs_values_map_t = std::map<uint32_t, uint64_t>;
+	using vcpu_msrs_t       = std::map<unsigned short, msrs_values_map_t>;
 	vcpu_msrs_t msrOldValueCache_;
 
 #ifdef DEBUG_DUMP_EVENTS

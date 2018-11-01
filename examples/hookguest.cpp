@@ -44,26 +44,26 @@ public:
 	DemoLogHelper( const string &domainName = "" )
 	{
 		if ( !domainName.empty() )
-			prefix_ = string( "[" ) + domainName + "] ";
+			prefix_ = "[" + domainName + "] ";
 	}
 
 public:
-	virtual void error( const string &message )
+	void error( const string &message ) override
 	{
 		cerr << prefix_ << "[ERROR] " << message << endl;
 	}
 
-	virtual void warning( const string &message )
+	void warning( const string &message ) override
 	{
 		cout << prefix_ << "[WARNING] " << message << endl;
 	}
 
-	virtual void info( const string &message )
+	void info( const string &message ) override
 	{
 		cout << prefix_ << "[INFO] " << message << endl;
 	}
 
-	virtual void debug( const string &message )
+	void debug( const string &message ) override
 	{
 		cout << prefix_ << "[DEBUG] " << message << endl;
 	}
@@ -76,41 +76,41 @@ class DemoEventHandler : public bdvmi::EventHandler {
 
 public:
 	// Callback for CR write events
-	virtual void handleCR( unsigned short /* vcpu */, unsigned short crNumber, const bdvmi::Registers & /* regs */,
-	                       uint64_t /* oldValue */, uint64_t newValue, bdvmi::HVAction & /* hvAction */ )
+	void handleCR( unsigned short /* vcpu */, unsigned short crNumber, const bdvmi::Registers & /* regs */,
+	               uint64_t /* oldValue */, uint64_t newValue, bdvmi::HVAction & /* hvAction */ ) override
 	{
 		cout << "CR" << crNumber << " event, newValue: 0x" << hex << newValue << endl;
 	}
 
 	// Callback for writes in MSR addresses
-	virtual void handleMSR( unsigned short /* vcpu */, uint32_t msr, uint64_t /* oldValue */, uint64_t newValue,
-	                        bdvmi::HVAction & /* hvAction */ )
+	void handleMSR( unsigned short /* vcpu */, uint32_t msr, uint64_t /* oldValue */, uint64_t newValue,
+	                bdvmi::HVAction & /* hvAction */ ) override
 	{
 		cout << "MSR " << msr << " event, newValue: 0x" << hex << newValue << endl;
 	}
 
 	// Callback for page faults
-	virtual void handlePageFault( unsigned short vcpu, const bdvmi::Registers & /* regs */,
-	                              uint64_t /* physAddress */, uint64_t /* virtAddress */, bool /* read */,
-	                              bool /* write */, bool /* execute */, bdvmi::HVAction & /* action */,
-	                              uint8_t * /* data */, uint32_t & /* size */,
-	                              unsigned short & /* instructionLength */ )
+	void handlePageFault( unsigned short vcpu, const bdvmi::Registers & /* regs */,
+	                      uint64_t /* physAddress */, uint64_t /* virtAddress */, bool /* read */,
+	                      bool /* write */, bool /* execute */, bdvmi::HVAction & /* action */,
+	                      uint8_t * /* data */, uint32_t & /* size */,
+	                      unsigned short & /* instructionLength */ ) override
 	{
 		cout << "Page fault event on VCPU: " << vcpu << endl;
 	}
 
-	virtual void handleVMCALL( unsigned short vcpu, const bdvmi::Registers &regs )
+	void handleVMCALL( unsigned short vcpu, const bdvmi::Registers &regs ) override
 	{
 		cout << "VMCALL event on VCPU " << vcpu << ", EAX: 0x" << hex << regs.rax << endl;
 	}
 
-	virtual void handleXSETBV( unsigned short vcpu, uint64_t ecx )
+	void handleXSETBV( unsigned short vcpu ) override
 	{
-		cout << "XSETBV event on VCPU " << vcpu << ", ECX: 0x" << hex << ecx << endl;
+		cout << "XSETBV event on VCPU " << vcpu << endl;
 	}
 
 	// Reserved (currently not in use)
-	virtual bool handleBreakpoint( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint64_t gpa )
+	bool handleBreakpoint( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint64_t gpa ) override
 	{
 		cout << "INT3 (breakpoint) event on VCPU " << vcpu << ", gpa: " << hex << showbase << gpa << endl;
 
@@ -118,33 +118,32 @@ public:
 		return false;
 	}
 
-	virtual void handleInterrupt( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint32_t /* vector */,
-	                              uint64_t /* errorCode */, uint64_t /* cr2 */ )
+	void handleInterrupt( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint32_t /* vector */,
+	                      uint64_t /* errorCode */, uint64_t /* cr2 */ ) override
 	{
-		cout << "Interrup event on VCPU " << vcpu << endl;
+		cout << "Interrupt event on VCPU " << vcpu << endl;
 	}
 
-	virtual void handleSessionOver( bool /* domainStillRunning */ )
+	void handleSessionOver( bool /* domainStillRunning */ ) override
 	{
 		cout << "Session over." << endl;
 	}
 
 	// This callback will run before each event (helper)
-	virtual void runPreEvent()
+	void runPreEvent() override
 	{
 		cout << "Prepare for event ..." << endl;
 	}
 
-	virtual void handleFatalError()
+	void handleFatalError() override
 	{
 		throw std::runtime_error( "A fatal error occurred, cannot continue" );
 	}
 
-	virtual void runPostEvent()
+	void runPostEvent() override
 	{
 		cout << "Event handled ..." << endl;
 	}
-
 };
 
 class DemoDomainHandler : public bdvmi::DomainHandler {
@@ -156,7 +155,7 @@ public:
 
 public:
 	// Found a domain
-	virtual void handleDomainFound( const string &uuid, const string &name )
+	void handleDomainFound( const string &uuid, const string &name ) override
 	{
 		cout << "A new domain started running: " << name
 			<< ", UUID: " << uuid << endl;
@@ -164,12 +163,12 @@ public:
 	}
 
 	// The domain is no longer running
-	virtual void handleDomainFinished( const string &uuid )
+	void handleDomainFinished( const string &uuid ) override
 	{
 		cout << "Domain finished: " << uuid << endl;
 	}
 
-	virtual void cleanup()
+	void cleanup( bool /* suspendIntrospectorDomain */ ) override
 	{
 		cout << "Done waiting for domains to start." << endl;
 	}
@@ -177,12 +176,10 @@ public:
 private:
 	void hookDomain( const string &uuid )
 	{
-		unique_ptr<bdvmi::Driver> pd( bf_.driver( uuid ) );
-		unique_ptr<bdvmi::EventManager> em( bf_.eventManager( *pd ) );
+		auto pd = bf_.driver( uuid );
+		auto em = bf_.eventManager( *pd, stop );
 
 		DemoEventHandler deh;
-
-		em->signalStopVar( &stop );
 
 		em->handler( &deh );
 
@@ -207,14 +204,11 @@ int main()
 		bdvmi::BackendFactory bf( bdvmi::BackendFactory::BACKEND_XEN, &logHelper );
 		DemoDomainHandler ddh( bf );
 
-		unique_ptr<bdvmi::DomainWatcher> pdw( bf.domainWatcher() );
+		auto pdw = bf.domainWatcher( stop );
 
 		cout << "Registering handler ... " << endl;
 
 		pdw->handler( &ddh );
-
-		cout << "Setting up break-out-of-the-loop (stop) variable ..." << endl;
-		pdw->signalStopVar( &stop );
 
 		cout << "Waiting for domains ..." << endl;
 		pdw->waitForDomains();

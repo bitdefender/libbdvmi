@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2017 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -13,73 +13,60 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
-#ifndef __BDVMIXENCACHE_H_INCLUDED__
-#define __BDVMXENCACHE_H_INCLUDED__
+#ifndef __BDVMIPAGECACHE_H_INCLUDED__
+#define __BDVMIPAGECACHE_H_INCLUDED__
 
-#include <map>
 #include "driver.h"
-
-extern "C" {
-#include <xenctrl.h>
-}
+#include <map>
 
 namespace bdvmi {
 
 class LogHelper;
 
-class XenPageCache {
+class PageCache {
 
 public:
-	enum { MAX_CACHE_SIZE_DEFAULT = 1536 /* pages */ };
+	static constexpr size_t MAX_CACHE_SIZE_DEFAULT = 1536; // pages
 
 private:
 	struct CacheInfo {
-		CacheInfo() : accessed( 0 ), pointer( nullptr ), in_use( 1 )
-		{
-		}
-
-		unsigned long accessed;
-		void *pointer;
-		short in_use;
+		unsigned long accessed{ 0 };
+		void *        pointer{ nullptr };
+		short         inUse{ 1 };
 	};
 
-	typedef std::map<unsigned long, CacheInfo> cache_t;
-	typedef std::map<void *, unsigned long> reverse_cache_t;
+	using cache_t         = std::map<unsigned long, CacheInfo>;
+	using reverse_cache_t = std::map<void *, unsigned long>;
 
 public:
-	XenPageCache( xc_interface *xci, domid_t domain, LogHelper *logHelper = nullptr );
-
-	XenPageCache( LogHelper *logHelper = nullptr );
-
-	~XenPageCache();
+	PageCache( Driver &driver, LogHelper *logHelper = nullptr );
+	~PageCache();
 
 public:
-	void init( xc_interface *xci, domid_t domain );
-	bool setLimit( size_t limit );
+	size_t setLimit( size_t limit );
 
 	MapReturnCode update( unsigned long gfn, void *&pointer );
 	void release( void *pointer );
 
 private:
 	MapReturnCode insertNew( unsigned long gfn, void *&pointer );
-	void cleanup();
+	void          cleanup();
 	unsigned long generateIndex();
 	bool checkPages( void *addr, size_t size );
 
-private: // no copying around
-	XenPageCache( const XenPageCache & );
-	XenPageCache &operator=( const XenPageCache & );
+public: // no copying around
+	PageCache( const PageCache & ) = delete;
+	PageCache &operator=( const PageCache & ) = delete;
 
 private:
-	cache_t cache_;
+	Driver &        driver_;
+	cache_t         cache_;
 	reverse_cache_t reverseCache_;
-	xc_interface *xci_;
-	domid_t domain_;
-	size_t cacheLimit_;
-	LogHelper *logHelper_;
-	int linuxMajVersion_;
+	size_t          cacheLimit_{ MAX_CACHE_SIZE_DEFAULT };
+	LogHelper *     logHelper_;
+	int             linuxMajVersion_{ -1 };
 };
 
 } // namespace bdvmi
 
-#endif // __BDVMIXENCACHE_H_INCLUDED__
+#endif // __BDVMIPAGECACHE_H_INCLUDED__
