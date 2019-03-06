@@ -1,5 +1,8 @@
-Libbdvmi
-(c) 2015-2018 Bitdefender SRL
+# Libbdvmi
+
+(c) 2015-2019 Bitdefender SRL
+
+## Usage
 
 Please use Xen 4.6 or newer. To test the library, issue:
 
