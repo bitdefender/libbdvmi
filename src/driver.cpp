@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -14,11 +14,12 @@
 // License along with this library.
 
 #include "bdvmi/driver.h"
-#include "bdvmi/loghelper.h"
+#include "bdvmi/logger.h"
 
 namespace bdvmi {
 
-bool Driver::setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute )
+bool Driver::setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute,
+                                unsigned short view )
 {
 	/*
 	 * The Intel SDM says:
@@ -31,8 +32,9 @@ bool Driver::setPageProtection( unsigned long long guestAddress, bool read, bool
 	 *
 	 */
 	if ( write && !read ) {
-		LOG_ERROR( logHelper_, "Attempted to set GPA ", std::hex, std::showbase, guestAddress, " ",
-		           ( read ? "r" : "-" ), ( write ? "w" : "-" ), ( execute ? "x" : "-" ) );
+		logger << ERROR << "Attempted to set GPA " << std::hex << std::showbase << guestAddress
+			<< " " << ( read ? "r" : "-" ) << ( write ? "w" : "-" ) << ( execute ? "x" : "-" )
+			<< std::flush;
 		return false;
 	}
 
@@ -41,13 +43,14 @@ bool Driver::setPageProtection( unsigned long long guestAddress, bool read, bool
 
 	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
 
-	memAccessCache_[gfn]        = memaccess;
-	delayedMemAccessWrite_[gfn] = memaccess;
+	memAccessCache_[view][gfn]        = memaccess;
+	delayedMemAccessWrite_[view][gfn] = memaccess;
 
 	return true;
 }
 
-bool Driver::getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
+bool Driver::getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
+                                unsigned short view )
 {
 	uint64_t gfn       = gpa_to_gfn( guestAddress );
 	uint8_t  memaccess = 0;
@@ -55,8 +58,10 @@ bool Driver::getPageProtection( unsigned long long guestAddress, bool &read, boo
 	{
 		std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
 
-		auto it = memAccessCache_.find( gfn );
-		if ( it != memAccessCache_.end() ) {
+		auto &&accessMap = memAccessCache_[view];
+		auto   it        = accessMap.find( gfn );
+
+		if ( it != accessMap.end() ) {
 			memaccess = it->second;
 
 			read    = !!( memaccess & PAGE_READ );
@@ -67,28 +72,13 @@ bool Driver::getPageProtection( unsigned long long guestAddress, bool &read, boo
 		}
 	}
 
-	if ( !getPageProtectionImpl( guestAddress, read, write, execute ) )
+	if ( !getPageProtectionImpl( guestAddress, read, write, execute, view ) )
 		return false;
 
 	memaccess = ( read ? PAGE_READ : 0 ) | ( write ? PAGE_WRITE : 0 ) | ( execute ? PAGE_EXECUTE : 0 );
 
 	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
-	memAccessCache_[gfn] = memaccess;
-
-	return true;
-}
-
-bool Driver::getDelayedPageProtection( unsigned long long guestAddress, unsigned &access )
-{
-	uint64_t gfn = gpa_to_gfn( guestAddress );
-
-	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
-
-	auto it = delayedMemAccessWrite_.find( gfn );
-	if ( it == delayedMemAccessWrite_.end() )
-		return false;
-
-	access = it->second;
+	memAccessCache_[view][gfn] = memaccess;
 
 	return true;
 }
@@ -97,12 +87,13 @@ void Driver::flushPageProtections()
 {
 	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
 
-	if ( delayedMemAccessWrite_.empty() )
-		return;
+	for ( auto &&item : delayedMemAccessWrite_ ) {
+		if ( item.second.empty() )
+			continue;
 
-	setPageProtectionImpl( delayedMemAccessWrite_ );
-
-	delayedMemAccessWrite_.clear();
+		setPageProtectionImpl( item.second, item.first );
+		item.second.clear();
+	}
 }
 
 } // namespace bdvmi
