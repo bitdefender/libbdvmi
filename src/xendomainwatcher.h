@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -23,13 +23,10 @@
 
 namespace bdvmi {
 
-// Forward declaration, minimize compile time
-class LogHelper;
-
 class XenDomainWatcher : public DomainWatcher {
 
 public:
-	XenDomainWatcher( sig_atomic_t &sigStop, LogHelper *logHelper );
+	XenDomainWatcher( sig_atomic_t &sigStop );
 
 	virtual ~XenDomainWatcher();
 
@@ -42,23 +39,26 @@ public:
 		return true;
 	}
 
-private:
+public:
 	// No copying allowed
-	XenDomainWatcher( const XenDomainWatcher & );
+	XenDomainWatcher( const XenDomainWatcher & ) = delete;
 
 	// No copying allowed
-	XenDomainWatcher &operator=( const XenDomainWatcher & );
+	XenDomainWatcher &operator=( const XenDomainWatcher & ) = delete;
 
 private:
 	bool waitForDomainsOrTimeout( std::list<DomainInfo> &domains, int ms ) override;
 
-	bool isSelf( domid_t domain );
+	bool isSelf( domid_t domain ) const;
 
 	void initControlKey( domid_t domain );
 
 	bool getNewDomains( std::list<DomainInfo> &domains );
 
 	std::string uuid( domid_t domain ) const;
+
+	void processNewDomain( std::list<DomainInfo> &domains, domid_t domid, const std::string &uuid,
+	                       const std::string &name );
 
 private:
 	mutable XS        xs_;
@@ -70,10 +70,11 @@ private:
 	const std::string controlToken_{ "control" };
 	const std::string postResumeToken_{ "post-resume" };
 	std::map<domid_t, std::string> domIds_;
-	LogHelper *       logHelper_;
-	bool              firstUninitWrite_{ false };
-	bool              keyCreated_{ false };
-	std::set<domid_t> preResumeDomains_;
+	bool                    firstControlCommand_{ true };
+	bool                    keyCreated_{ false };
+	std::set<domid_t>       preResumeDomains_;
+	constexpr static char   TEMPORARY_UUID_SUFFIX[]{ "000000000001" };
+	constexpr static size_t PREFIX_SIZE{ 4 };
 };
 
 } // namespace bdvmi

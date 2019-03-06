@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -14,55 +14,48 @@
 // License along with this library.
 
 #include "bdvmi/statscollector.h"
-#include <sstream>
-
-#ifdef DUMP_STATS
-#define DEBUG_ONLY_PARAM( x ) x
-#else
-#define DEBUG_ONLY_PARAM( x )
-#endif
+#include "bdvmi/logger.h"
 
 namespace bdvmi {
 
-StatsCollector & StatsCollector::instance()
+StatsCollector &StatsCollector::instance()
 {
 	static StatsCollector theInstance;
 	return theInstance;
 }
 
-void StatsCollector::incStat( const std::string & DEBUG_ONLY_PARAM( st ) )
+void StatsCollector::enable( bool value )
 {
-#ifdef DUMP_STATS
+	enable_ = value;
+
 	std::lock_guard<std::mutex> lock( statsMutex_ );
-	stats_[st]++;
-#endif
+	counter_.clear();
+	duration_.clear();
 }
 
-void StatsCollector::addToStat( const std::string & DEBUG_ONLY_PARAM( st ),
-                                unsigned long DEBUG_ONLY_PARAM( number ) )
+void StatsCollector::count( const std::string &st, const std::chrono::duration<double> &duration )
 {
-#ifdef DUMP_STATS
+	if ( !enable_ )
+		return;
+
 	std::lock_guard<std::mutex> lock( statsMutex_ );
-	stats_[st] += number;
-#endif
+	counter_[st]++;
+	duration_[st] += duration;
 }
 
-std::string StatsCollector::dumpStats(int DEBUG_ONLY_PARAM( seconds ) )
+void StatsCollector::dump() const
 {
-#ifdef DUMP_STATS
 	std::lock_guard<std::mutex> lock( statsMutex_ );
 
-	std::stringstream ss;
+	logger << DEBUG;
+	for ( auto &&s : counter_ )
+		logger << s.first << ": " << s.second << "; ";
+	logger << std::flush;
 
-	for ( auto &&s : stats_ )
-		ss << s.first << ": " << ( double )s.second / seconds << " ";
-
-	stats_.clear();
-
-	return ss.str();
-#else
-	return "";
-#endif
+	logger << DEBUG;
+	for ( auto &&s : duration_ )
+		logger << s.first << ": " << s.second.count() << " s; ";
+	logger << std::flush;
 }
 
 } // namespace bdvmi

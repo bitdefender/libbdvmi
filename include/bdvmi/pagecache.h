@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -21,8 +21,6 @@
 
 namespace bdvmi {
 
-class LogHelper;
-
 class PageCache {
 
 public:
@@ -39,12 +37,13 @@ private:
 	using reverse_cache_t = std::map<void *, unsigned long>;
 
 public:
-	PageCache( Driver &driver, LogHelper *logHelper = nullptr );
+	PageCache( Driver &driver );
 	~PageCache();
 
 public:
 	size_t setLimit( size_t limit );
 
+	void          reset();
 	MapReturnCode update( unsigned long gfn, void *&pointer );
 	void release( void *pointer );
 
@@ -63,7 +62,6 @@ private:
 	cache_t         cache_;
 	reverse_cache_t reverseCache_;
 	size_t          cacheLimit_{ MAX_CACHE_SIZE_DEFAULT };
-	LogHelper *     logHelper_;
 	int             linuxMajVersion_{ -1 };
 };
 

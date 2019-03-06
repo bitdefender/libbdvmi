@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2018-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
-#include "xswrapper.h"
 #include "dynamiclibfactory.h"
+#include "utils.h"
+#include "xswrapper.h"
 
 extern "C" {
 #include <xenstore.h>
@@ -179,14 +180,15 @@ template <> struct XSFactoryImpl<xs_directory_fn_t, xs_directory_fn_name> {
 		fn_t *fn   = p->lib_.lookup<fn_t, xs_directory_fn_name>();
 		return [fn]( xs_handle *xsh, xs_transaction_t t, const std::string &path,
 		             std::vector<std::string> &dir ) {
-			unsigned int count = 0;
-			char **      res   = fn( xsh, t, path.c_str(), &count );
+			unsigned int       count = 0;
+			CUniquePtr<char *> res( fn( xsh, t, path.c_str(), &count ) );
 
 			if ( !res )
 				return false;
+
 			dir.reserve( count );
-			std::copy( res, res + count, std::back_inserter( dir ) );
-			free( res );
+			std::copy( res.get(), res.get() + count, std::back_inserter( dir ) );
+
 			return true;
 		};
 	}
@@ -231,22 +233,23 @@ template <> struct XSFactoryImpl<xs_read_watch_fn_t, xs_read_watch_fn_name> {
 		using fn_t = char **( struct xs_handle *, unsigned int * );
 		fn_t *fn   = p->lib_.lookup<fn_t, xs_read_watch_fn_name>();
 		return [fn]( xs_handle *xsh, std::vector<std::string> &watch ) {
-			unsigned int num = 0;
-			char **      res = fn( xsh, &num );
+			unsigned int       num = 0;
+			CUniquePtr<char *> res( fn( xsh, &num ) );
 
 			if ( !res )
 				return false;
+
 			watch.reserve( num );
-			std::copy( res, res + num, std::back_inserter( watch ) );
-			free( res );
+			std::copy( res.get(), res.get() + num, std::back_inserter( watch ) );
+
 			return true;
 		};
 	}
 };
 
-constexpr xs_transaction_t XS::xbtNull    = XBT_NULL;
-constexpr uint32_t         XS::watchPath  = XS_WATCH_PATH;
-constexpr uint32_t         XS::watchToken = XS_WATCH_TOKEN;
+const xs_transaction_t XS::xbtNull    = XBT_NULL;
+const uint32_t         XS::watchPath  = XS_WATCH_PATH;
+const uint32_t         XS::watchToken = XS_WATCH_TOKEN;
 
 using namespace std::placeholders;
 

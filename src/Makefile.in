@@ -133,12 +133,11 @@ am__uninstall_files_from_dir = { \
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 libbdvmi_la_LIBADD =
-am_libbdvmi_la_OBJECTS = bdvmibackendfactory.lo bdvmidomainwatcher.lo \
-	bdvmixendomainwatcher.lo bdvmixendriver.lo \
-	bdvmixeneventmanager.lo bdvmistatscollector.lo bdvmidriver.lo \
-	bdvmidynamiclibfactory.lo bdvmieventmanager.lo \
-	bdvmipagecache.lo bdvmiversion.lo bdvmixcwrapper.lo \
-	bdvmixenaltp2m.lo bdvmixswrapper.lo
+am_libbdvmi_la_OBJECTS = backendfactory.lo domainwatcher.lo \
+	xendomainwatcher.lo xendriver.lo xeneventmanager.lo \
+	statscollector.lo driver.lo dynamiclibfactory.lo \
+	eventmanager.lo pagecache.lo version.lo xcwrapper.lo \
+	xenaltp2m.lo xswrapper.lo logger.lo
 libbdvmi_la_OBJECTS = $(am_libbdvmi_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -333,15 +332,17 @@ lib_LTLIBRARIES = libbdvmi.la
 noinst_HEADERS = dynamiclibfactory.h utils.h \
 		 xcwrapper.h xenaltp2m.h \
 		 xendomainwatcher.h xendriver.h \
-		 xeneventmanager.h xswrapper.h
+		 xeneventmanager.h xswrapper.h \
+		 xen_vm_event_v3.h xen_vm_event_v4.h
 
-libbdvmi_la_SOURCES = bdvmibackendfactory.cpp bdvmidomainwatcher.cpp \
-		      bdvmixendomainwatcher.cpp bdvmixendriver.cpp \
-		      bdvmixeneventmanager.cpp bdvmistatscollector.cpp \
-		      bdvmidriver.cpp bdvmidynamiclibfactory.cpp \
-		      bdvmieventmanager.cpp bdvmipagecache.cpp \
-		      bdvmiversion.cpp bdvmixcwrapper.cpp \
-		      bdvmixenaltp2m.cpp bdvmixswrapper.cpp
+libbdvmi_la_SOURCES = backendfactory.cpp domainwatcher.cpp \
+		      xendomainwatcher.cpp xendriver.cpp \
+		      xeneventmanager.cpp statscollector.cpp \
+		      driver.cpp dynamiclibfactory.cpp \
+		      eventmanager.cpp pagecache.cpp \
+		      version.cpp xcwrapper.cpp \
+		      xenaltp2m.cpp xswrapper.cpp \
+		      logger.cpp
 
 all: all-am
 
@@ -421,20 +422,21 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmibackendfactory.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmidomainwatcher.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmidriver.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmidynamiclibfactory.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmieventmanager.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmipagecache.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmistatscollector.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmiversion.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixcwrapper.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixenaltp2m.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixendomainwatcher.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixendriver.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixeneventmanager.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bdvmixswrapper.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/backendfactory.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/domainwatcher.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/driver.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dynamiclibfactory.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eventmanager.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/logger.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pagecache.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/statscollector.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/version.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xcwrapper.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xenaltp2m.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xendomainwatcher.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xendriver.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xeneventmanager.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xswrapper.Plo@am__quote@
 
 .cpp.o:
 @am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXXCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<

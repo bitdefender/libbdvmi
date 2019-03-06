@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2018-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -33,18 +33,34 @@ namespace bdvmi {
 
 class XenAltp2mDomainState {
 public:
-	XenAltp2mDomainState( XC &xc, uint32_t domain );
+	XenAltp2mDomainState( XC &xc, uint32_t domain, bool enable = true );
 	~XenAltp2mDomainState();
 
-	int createView( xenmem_access_t default_access, uint16_t &id );
+	int createView( xenmem_access_t defaultAccess, uint16_t &id );
 
-	int switchToView( uint16_t view_id );
+	int switchToView( uint16_t view );
+
+	int destroyView( uint16_t view );
+
+	int setVEInfoPage( uint32_t vcpu, xen_pfn_t gpa );
+
+	int disableVE( uint32_t vcpu );
+
+	int setSuppressVE( uint16_t view, xen_pfn_t gfn, bool sve );
+
+	int getSuppressVE( uint16_t view, xen_pfn_t gfn, bool &sve );
+
+	explicit operator bool() const
+	{
+		return enabled_;
+	}
 
 private:
 	XC &               xc_;
 	uint32_t           domain_;
-	uint16_t           current_view_{ 0 };
+	uint16_t           currentView_{ 0 };
 	std::set<uint16_t> views_;
+	bool               enabled_{ false };
 };
 
 } // namespace bdvmi

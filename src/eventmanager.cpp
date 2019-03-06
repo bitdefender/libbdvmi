@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -136,6 +136,26 @@ bool EventManager::disableVMCALLEvents()
 	vmcallEnabled_ = !disableVMCALLEventsImpl();
 
 	return !vmcallEnabled_;
+}
+
+bool EventManager::enableDescriptorEvents()
+{
+	if ( descriptorEnabled_ )
+		return true;
+
+	descriptorEnabled_ = enableDescriptorEventsImpl();
+
+	return descriptorEnabled_;
+}
+
+bool EventManager::disableDescriptorEvents()
+{
+	if ( !descriptorEnabled_ )
+		return true;
+
+	descriptorEnabled_ = !disableDescriptorEventsImpl();
+
+	return !descriptorEnabled_;
 }
 
 } // namespace bdvmi

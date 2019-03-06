@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -13,24 +13,25 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
-#include "bdvmi/loghelper.h"
+#include "bdvmi/logger.h"
 #include "bdvmi/pagecache.h"
 #include <sys/mman.h>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <errno.h>
 
 namespace bdvmi {
 
-PageCache::PageCache( Driver &driver, LogHelper *logHelper )
-    : driver_{ driver }, logHelper_{ logHelper }
+PageCache::PageCache( Driver &driver )
+    : driver_{ driver }
 {
 	std::ifstream in( "/proc/sys/kernel/osrelease" );
 
 	if ( in )
 		in >> linuxMajVersion_;
 	else
-		LOG_WARNING( logHelper_, "Cannot access /proc/sys/kernel/osrelease" );
+		logger << WARNING << "Cannot access /proc/sys/kernel/osrelease" << std::flush;
 }
 
 bool PageCache::checkPages( void *addr, size_t size )
@@ -52,12 +53,24 @@ size_t PageCache::setLimit( size_t limit )
 	return cacheLimit_;
 }
 
+void PageCache::reset()
+{
+	for ( auto &&item : cache_ ) {
+		if ( item.second.inUse )
+			logger << TRACE << "Address " << item.second.pointer << " (gfn "
+				<< std::hex << reverseCache_[item.second.pointer]
+				<< std::dec << ") is still mapped (" << item.second.inUse
+				<< ") ?!" << std::flush;
+
+		driver_.unmapGuestPageImpl( item.second.pointer, item.first );
+	}
+
+	cache_.clear();
+}
+
 PageCache::~PageCache()
 {
-	for ( auto &&item : cache_ )
-		// don't need to do anything else, std::map::~map() will
-		// take care of itself
-		driver_.unmapGuestPageImpl( item.second.pointer, item.first );
+	reset();
 }
 
 MapReturnCode PageCache::update( unsigned long gfn, void *&pointer )
@@ -102,8 +115,8 @@ MapReturnCode PageCache::insertNew( unsigned long gfn, void *&pointer )
 
 	if ( !ci.pointer ) {
 		/*
-		LOG_ERROR( logHelper_, "xc_map_foreign_range(0x", std::setfill( '0' ), std::setw( 16 ), std::hex, gfn,
-		           ") failed: ", strerror( errno ) );
+		logger << ERROR << "xc_map_foreign_range(0x" << std::setfill( '0' ) << std::setw( 16 )
+			<< std::hex << gfn << ") failed: " << strerror( errno ) << std::flush;
 		*/
 
 		pointer = nullptr;
@@ -111,8 +124,8 @@ MapReturnCode PageCache::insertNew( unsigned long gfn, void *&pointer )
 	}
 
 	if ( !checkPages( ci.pointer, PAGE_SIZE ) ) {
-		LOG_ERROR( logHelper_, "check_pages(0x", std::setfill( '0' ), std::setw( 16 ), std::hex, gfn,
-		           ") failed: ", strerror( errno ) );
+		logger << ERROR << "check_pages(0x" << std::setfill( '0' ) << std::setw( 16 )
+			<< std::hex << gfn << ") failed: " << strerror( errno ) << std::flush;
 
 		driver_.unmapGuestPageImpl( ci.pointer, gfn );
 

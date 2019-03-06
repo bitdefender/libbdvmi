@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2018-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -17,6 +17,7 @@
 #define __BDVMIUTILS_H_INCLUDED__
 
 #include <functional>
+#include <memory>
 
 namespace bdvmi {
 
@@ -40,9 +41,9 @@ public:
 	{
 	}
 
-	NCFunction & operator=( std::function<R( Args... )> &&f )
+	NCFunction &operator=( std::function<R( Args... )> &&f )
 	{
-		std::function<R( Args... )>::operator=( std::move(f) );
+		std::function<R( Args... )>::operator=( std::move( f ) );
 		return *this;
 	}
 };
@@ -51,6 +52,17 @@ template <typename A, typename F> struct PrependArg;
 
 template <typename R, typename A, typename... Args> struct PrependArg<A, R( Args... )> {
 	using type = R( A, Args... );
+};
+
+using CDeleterType                         = void ( * )( void * );
+template <typename T> using CUniquePtrType = std::unique_ptr<T, CDeleterType>;
+
+template <typename T> class CUniquePtr : public CUniquePtrType<T> {
+public:
+	CUniquePtr( void *ptr = nullptr )
+	    : CUniquePtrType<T>( static_cast<T *>( ptr ), []( void *ptr ) { ::free( ptr ); } )
+	{
+	}
 };
 
 } // namespace bdvmi

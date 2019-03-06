@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -33,12 +33,11 @@ extern "C" {
 namespace bdvmi {
 
 class XenDriver;
-class LogHelper;
 
 class XenEventManager : public EventManager {
 
 public:
-	XenEventManager( XenDriver &driver, sig_atomic_t &sigStop, LogHelper *logHelper, bool useAltP2m = false );
+	XenEventManager( XenDriver &driver, sig_atomic_t &sigStop );
 
 	virtual ~XenEventManager();
 
@@ -70,6 +69,10 @@ private:
 
 	bool disableVMCALLEventsImpl() override;
 
+	bool enableDescriptorEventsImpl() override;
+
+	bool disableDescriptorEventsImpl() override;
+
 private:
 	void initXenStore();
 
@@ -77,13 +80,13 @@ private:
 
 	void initMemAccess();
 
-	void initAltP2m();
-
 	int waitForEventOrTimeout( int ms );
 
-	void getRequest( vm_event_request_t *req );
+	template<typename Request, typename Ring>
+	void getRequest( Request &req );
 
-	void putResponse( vm_event_response_t *rsp );
+	template<typename Response, typename Ring>
+	void putResponse( const Response &rsp );
 
 	void resumePage();
 
@@ -91,18 +94,22 @@ private:
 
 	void cleanup();
 
-	void setRegisters( vm_event_response_t &rsp );
+	template<typename Response>
+	void setRegisters( Response &rsp );
 
 	bool setCrEvents( unsigned int cr, bool enable );
 
 	uint64_t getMsr( unsigned short vcpu, uint32_t msr ) const;
 
-private:
+	template<typename Request, typename Response, typename Ring>
+	void waitForEventsByVMEventVersion();
+
+public:
 	// Don't allow copying for these objects
-	XenEventManager( const XenEventManager & );
+	XenEventManager( const XenEventManager & ) = delete;
 
 	// Don't allow copying for these objects
-	XenEventManager &operator=( const XenEventManager & );
+	XenEventManager &operator=( const XenEventManager & ) = delete;
 
 private:
 	XenDriver &          driver_;
@@ -113,7 +120,7 @@ private:
 	int                  port_{ -1 };
 	XS                   xs_;
 	uint32_t             evtchnPort_{ 0 };
-	vm_event_back_ring_t backRing_;
+	void *               backRing_{ nullptr };
 	void *               ringPage_{ nullptr };
 	std::string          watchToken_;
 	std::string          controlXenStorePath_;
@@ -121,11 +128,12 @@ private:
 	bool                 evtchnOn_{ false };
 	bool                 evtchnBindOn_{ false };
 	bool                 guestStillRunning_{ true };
-	LogHelper *          logHelper_;
 	bool                 firstReleaseWatch_{ true };
-	bool                 firstXenServerWatch_{ true };
+	bool                 firstControlCommand_{ true };
 	bool                 useAltP2m_;
 	bool                 foundEvents_{ false };
+	uint32_t             vmEventInterfaceVersion_{ 0 };
+	bool                 useVMEventV4_{ false };
 
 	using msrs_values_map_t = std::map<uint32_t, uint64_t>;
 	using vcpu_msrs_t       = std::map<unsigned short, msrs_values_map_t>;

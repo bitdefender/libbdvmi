@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2018-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -77,23 +77,23 @@ using xc_interface_open_fn_t  = xc_interface *( xentoollog_logger *, xentoollog_
 using xc_interface_close_fn_t = int( xc_interface * );
 using xc_version_fn_t         = int( xc_interface *, int, void * );
 
-constexpr char xc_interface_open_fn_name[]                = "xc_interface_open";
-constexpr char xc_interface_close_fn_name[]               = "xc_interface_close";
-constexpr char xc_version_fn_name[]                       = "xc_version";
-constexpr char xc_set_mem_access_multi_fn_name[]          = "xc_set_mem_access_multi";
-constexpr char xc_altp2m_set_mem_access_multi_fn_name[]   = "xc_altp2m_set_mem_access_multi";
-constexpr char xc_evtchn_open_fn_name[]                   = "xc_evtchn_open";
-constexpr char xc_evtchn_close_fn_name[]                  = "xc_evtchn_close";
-constexpr char xc_evtchn_fd_fn_name[]                     = "xc_evtchn_fd";
-constexpr char xc_evtchn_pending_fn_name[]                = "xc_evtchn_pending";
-constexpr char xc_evtchn_bind_interdomain_fn_name[]       = "xc_evtchn_bind_interdomain";
-constexpr char xc_evtchn_unbind_fn_name[]                 = "xc_evtchn_unbind";
-constexpr char xc_evtchn_unmask_fn_name[]                 = "xc_evtchn_unmask";
-constexpr char xc_evtchn_notify_fn_name[]                 = "xc_evtchn_notify";
-constexpr char xc_vcpu_getcontext_fn_name[]               = "xc_vcpu_getcontext";
-constexpr char xc_vcpu_setcontext_fn_name[]               = "xc_vcpu_setcontext";
+constexpr char xc_interface_open_fn_name[]              = "xc_interface_open";
+constexpr char xc_interface_close_fn_name[]             = "xc_interface_close";
+constexpr char xc_version_fn_name[]                     = "xc_version";
+constexpr char xc_set_mem_access_multi_fn_name[]        = "xc_set_mem_access_multi";
+constexpr char xc_altp2m_set_mem_access_multi_fn_name[] = "xc_altp2m_set_mem_access_multi";
+constexpr char xc_evtchn_open_fn_name[]                 = "xc_evtchn_open";
+constexpr char xc_evtchn_close_fn_name[]                = "xc_evtchn_close";
+constexpr char xc_evtchn_fd_fn_name[]                   = "xc_evtchn_fd";
+constexpr char xc_evtchn_pending_fn_name[]              = "xc_evtchn_pending";
+constexpr char xc_evtchn_bind_interdomain_fn_name[]     = "xc_evtchn_bind_interdomain";
+constexpr char xc_evtchn_unbind_fn_name[]               = "xc_evtchn_unbind";
+constexpr char xc_evtchn_unmask_fn_name[]               = "xc_evtchn_unmask";
+constexpr char xc_evtchn_notify_fn_name[]               = "xc_evtchn_notify";
+constexpr char xc_vcpu_getcontext_fn_name[]             = "xc_vcpu_getcontext";
+constexpr char xc_vcpu_setcontext_fn_name[]             = "xc_vcpu_setcontext";
 
-struct XCFactory;
+class XCFactory;
 
 template <typename T, const char name[]> struct XCFactoryImpl {
 	static std::function<T> lookup( const XCFactory *p, bool required );
@@ -118,38 +118,42 @@ public:
 	std::string caps;
 	std::string uuid;
 
-	std::function<xc_domain_pause_fn_t>                  domainPause;
-	std::function<xc_domain_unpause_fn_t>                domainUnpause;
-	std::function<xc_domain_shutdown_fn_t>               domainShutdown;
-	std::function<xc_domain_getinfo_fn_t>                domainGetInfo;
-	std::function<xc_domain_getinfolist_fn_t>            domainGetInfoList;
-	std::function<xc_domain_maximum_gpfn_fn_t>           domainMaximumGpfn;
-	std::function<xc_domain_debug_control_fn_t>          domainDebugControl;
-	std::function<xc_domain_get_tsc_info_fn_t>           domainGetTscInfo;
-	std::function<xc_domain_set_access_required_fn_t>    domainSetAccessRequired;
-	std::function<xc_domain_hvm_getcontext_fn_t>         domainHvmGetContext;
-	std::function<xc_domain_hvm_getcontext_partial_fn_t> domainHvmGetContextPartial;
-	std::function<xc_domain_set_cores_per_socket_fn_t>   domainSetCoresPerSocket;
-	std::function<xc_set_mem_access_fn_t>                setMemAccess;
-	std::function<xc_altp2m_set_mem_access_fn_t>         altp2mSetMemAccess;
-	std::function<xc_altp2m_set_domain_state_fn_t>       altp2mSetDomainState;
-	std::function<xc_altp2m_create_view_fn_t>            altp2mCreateView;
-	std::function<xc_altp2m_destroy_view_fn_t>           altp2mDestroyView;
-	std::function<xc_altp2m_switch_to_view_fn_t>         altp2mSwitchToView;
-	std::function<xc_map_foreign_range_fn_t>             mapForeignRange;
-	std::function<xc_get_mem_access_fn_t>                getMemAccess;
-	std::function<xc_translate_foreign_address_fn_t>     translateForeignAddress;
-	std::function<xc_copy_to_domain_page_fn_t>           copyToDomainPage;
-	std::function<xc_hvm_inject_trap_fn_t>               hvmInjectTrap;
-	std::function<xc_vcpu_set_registers_fn_t>            vcpuSetRegisters;
-	std::function<xc_monitor_enable_fn_t>                monitorEnable;
-	std::function<xc_monitor_disable_fn_t>               monitorDisable;
-	std::function<xc_monitor_singlestep_fn_t>            monitorSinglestep;
-	std::function<xc_monitor_software_breakpoint_fn_t>   monitorSoftwareBreakpoint;
-	std::function<xc_monitor_emulate_each_rep_fn_t>      monitorEmulateEachRep;
-	std::function<xc_monitor_mov_to_msr_fn_t>            monitorMovToMsr;
-	std::function<xc_monitor_guest_request_fn_t>         monitorGuestRequest;
-	std::function<xc_monitor_write_ctrlreg_fn_t>         monitorWriteCtrlreg;
+	std::function<xc_domain_pause_fn_t>                   domainPause;
+	std::function<xc_domain_unpause_fn_t>                 domainUnpause;
+	std::function<xc_domain_shutdown_fn_t>                domainShutdown;
+	std::function<xc_domain_getinfo_fn_t>                 domainGetInfo;
+	std::function<xc_domain_getinfolist_fn_t>             domainGetInfoList;
+	std::function<xc_domain_maximum_gpfn_fn_t>            domainMaximumGpfn;
+	std::function<xc_domain_debug_control_fn_t>           domainDebugControl;
+	std::function<xc_domain_get_tsc_info_fn_t>            domainGetTscInfo;
+	std::function<xc_domain_set_access_required_fn_t>     domainSetAccessRequired;
+	std::function<xc_domain_hvm_getcontext_fn_t>          domainHvmGetContext;
+	std::function<xc_domain_hvm_getcontext_partial_fn_t>  domainHvmGetContextPartial;
+	std::function<xc_domain_set_cores_per_socket_fn_t>    domainSetCoresPerSocket;
+	std::function<xc_set_mem_access_fn_t>                 setMemAccess;
+	std::function<xc_altp2m_get_mem_access_fn_t>          altp2mGetMemAccess;
+	std::function<xc_altp2m_set_mem_access_fn_t>          altp2mSetMemAccess;
+	std::function<xc_altp2m_set_domain_state_fn_t>        altp2mSetDomainState;
+	std::function<xc_altp2m_create_view_fn_t>             altp2mCreateView;
+	std::function<xc_altp2m_destroy_view_fn_t>            altp2mDestroyView;
+	std::function<xc_altp2m_switch_to_view_fn_t>          altp2mSwitchToView;
+	std::function<xc_altp2m_set_suppress_ve_fn_t>         altp2mSetSuppressVE;
+	std::function<xc_altp2m_get_suppress_ve_fn_t>         altp2mGetSuppressVE;
+	std::function<xc_altp2m_set_vcpu_enable_notify_fn_t>  altp2mSetVcpuEnableNotify;
+	std::function<xc_altp2m_set_vcpu_disable_notify_fn_t> altp2mSetVcpuDisableNotify;
+	std::function<xc_map_foreign_range_fn_t>              mapForeignRange;
+	std::function<xc_get_mem_access_fn_t>                 getMemAccess;
+	std::function<xc_hvm_inject_trap_fn_t>                hvmInjectTrap;
+	std::function<xc_vcpu_set_registers_fn_t>             vcpuSetRegisters;
+	std::function<xc_monitor_enable_fn_t>                 monitorEnable;
+	std::function<xc_monitor_disable_fn_t>                monitorDisable;
+	std::function<xc_monitor_singlestep_fn_t>             monitorSinglestep;
+	std::function<xc_monitor_software_breakpoint_fn_t>    monitorSoftwareBreakpoint;
+	std::function<xc_monitor_emulate_each_rep_fn_t>       monitorEmulateEachRep;
+	std::function<xc_monitor_mov_to_msr_fn_t>             monitorMovToMsr;
+	std::function<xc_monitor_guest_request_fn_t>          monitorGuestRequest;
+	std::function<xc_monitor_write_ctrlreg_fn_t>          monitorWriteCtrlreg;
+	std::function<xc_monitor_descriptor_access_fn_t>      monitorDescriptorAccess;
 
 	std::function<bdvmi_evtchn_open_fn_t>             evtchnOpen;
 	std::function<bdvmi_evtchn_close_fn_t>            evtchnClose;
@@ -207,13 +211,10 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 
 	XS           xs;
 	unsigned int size = 0;
-	char *       xenServer =
-	        static_cast<char *>( xs.readTimeout( XS::xbtNull, "/mh/XenSource-TM_XenEnterprise-TM", &size, 1 ) );
+	CUniquePtr<char> xenServer( xs.readTimeout( XS::xbtNull, "/mh/XenSource-TM_XenEnterprise-TM", &size, 1 ) );
 
-	if ( xenServer && xenServer[0] != '\0' )
+	if ( xenServer && *xenServer.get() != '\0' )
 		isXenServer = true;
-
-	free( xenServer );
 
 	if ( !isXenServer && ( version == Version( 4, 6 ) || version == Version( 4, 7 ) ) &&
 	     lib_.contains( "xc_set_mem_access_multi" ) )
@@ -254,17 +255,20 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 	domainSetAccessRequired    = LOOKUP_XC_FUNCTION_REQUIRED( domain_set_access_required );
 	domainHvmGetContext        = LOOKUP_XC_FUNCTION_REQUIRED( domain_hvm_getcontext );
 	domainHvmGetContextPartial = LOOKUP_XC_FUNCTION_REQUIRED( domain_hvm_getcontext_partial );
-	domainSetCoresPerSocket    = LOOKUP_XC_FUNCTION_OPTIONAL( domain_set_cores_per_socket );
 	setMemAccess               = LOOKUP_XC_FUNCTION_REQUIRED( set_mem_access );
+	altp2mGetMemAccess         = LOOKUP_XC_FUNCTION_OPTIONAL( altp2m_get_mem_access );
+	domainSetCoresPerSocket    = LOOKUP_XC_FUNCTION_OPTIONAL( domain_set_cores_per_socket );
 	altp2mSetMemAccess         = LOOKUP_XC_FUNCTION_REQUIRED( altp2m_set_mem_access );
 	altp2mSetDomainState       = LOOKUP_XC_FUNCTION_REQUIRED( altp2m_set_domain_state );
 	altp2mCreateView           = LOOKUP_XC_FUNCTION_REQUIRED( altp2m_create_view );
 	altp2mDestroyView          = LOOKUP_XC_FUNCTION_REQUIRED( altp2m_destroy_view );
 	altp2mSwitchToView         = LOOKUP_XC_FUNCTION_REQUIRED( altp2m_switch_to_view );
+	altp2mSetSuppressVE        = LOOKUP_XC_FUNCTION_OPTIONAL( altp2m_set_suppress_ve );
+	altp2mGetSuppressVE        = LOOKUP_XC_FUNCTION_OPTIONAL( altp2m_get_suppress_ve );
+	altp2mSetVcpuEnableNotify  = LOOKUP_XC_FUNCTION_REQUIRED( altp2m_set_vcpu_enable_notify );
+	altp2mSetVcpuDisableNotify = LOOKUP_XC_FUNCTION_OPTIONAL( altp2m_set_vcpu_disable_notify );
 	mapForeignRange            = LOOKUP_XC_FUNCTION_REQUIRED( map_foreign_range );
 	getMemAccess               = LOOKUP_XC_FUNCTION_REQUIRED( get_mem_access );
-	translateForeignAddress    = LOOKUP_XC_FUNCTION_REQUIRED( translate_foreign_address );
-	copyToDomainPage           = LOOKUP_XC_FUNCTION_REQUIRED( copy_to_domain_page );
 	hvmInjectTrap              = LOOKUP_XC_FUNCTION_REQUIRED( hvm_inject_trap );
 	vcpuSetRegisters           = LOOKUP_XC_FUNCTION_REQUIRED( vcpu_set_registers );
 	monitorEnable              = LOOKUP_XC_FUNCTION_REQUIRED( monitor_enable );
@@ -275,6 +279,7 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 	monitorMovToMsr            = LOOKUP_XC_FUNCTION_REQUIRED( monitor_mov_to_msr );
 	monitorGuestRequest        = LOOKUP_XC_FUNCTION_REQUIRED( monitor_guest_request );
 	monitorWriteCtrlreg        = LOOKUP_XC_FUNCTION_REQUIRED( monitor_write_ctrlreg );
+	monitorDescriptorAccess    = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_descriptor_access );
 
 	evtchnOpen            = LOOKUP_BDVMI_FUNCTION_REQUIRED( evtchn_open );
 	evtchnClose           = LOOKUP_BDVMI_FUNCTION_REQUIRED( evtchn_close );
@@ -362,7 +367,7 @@ template <> struct XCFactoryImpl<xc_set_mem_access_fn_t, xc_set_mem_access_fn_na
 					access_type.push_back( XC::xenMemAccess( item.second ) );
 					gfns.push_back( item.first );
 				}
-				StatsCollector::instance().incStat( "xcSetMemAccessMulti" );
+				StatsCounter counter( "xcSetMemAccessMulti" );
 				return fun1( xci, domid, &access_type[0], &gfns[0], gfns.size() );
 			};
 		}
@@ -371,7 +376,7 @@ template <> struct XCFactoryImpl<xc_set_mem_access_fn_t, xc_set_mem_access_fn_na
 		fn_t *fun2 = p->lib_.lookup<fn_t, xc_set_mem_access_fn_name>();
 		return [fun2]( xc_interface *xci, uint32_t domid, const Driver::MemAccessMap &access ) {
 			for ( auto &&item : access ) {
-				StatsCollector::instance().incStat( "xcSetMemAccess" );
+				StatsCounter counter( "xcSetMemAccess" );
 				fun2( xci, domid, XC::xenMemAccess( item.second ), item.first, 1 );
 			}
 			return 0; // FIXME: value is ignored in the original code
@@ -394,7 +399,7 @@ template <> struct XCFactoryImpl<xc_altp2m_set_mem_access_fn_t, xc_altp2m_set_me
 					access_type.push_back( XC::xenMemAccess( item.second ) );
 					gfns.push_back( item.first );
 				}
-				StatsCollector::instance().incStat( "xcSetMemAccessMulti" );
+				StatsCounter counter( "xcSetMemAccessMulti" );
 				return fun1( xci, domid, altp2mViewId, &access_type[0], &gfns[0], gfns.size() );
 			};
 		}
@@ -404,7 +409,7 @@ template <> struct XCFactoryImpl<xc_altp2m_set_mem_access_fn_t, xc_altp2m_set_me
 		return [fun2]( xc_interface *xci, uint32_t domid, uint16_t altp2mViewId,
 		               const Driver::MemAccessMap &access ) {
 			for ( auto &&item : access ) {
-				StatsCollector::instance().incStat( "xcSetMemAccess" );
+				StatsCounter counter( "xcSetMemAccess" );
 				fun2( xci, domid, altp2mViewId, XC::xenMemAccess( item.second ), item.first, 1 );
 			}
 			return 0; // FIXME: value is ignored in the original code
@@ -462,7 +467,7 @@ template <> struct XCFactoryImpl<xc_monitor_write_ctrlreg_fn_t, xc_monitor_write
 			};
 		}
 
-		using fn_t = int( xc_interface *, uint32_t, uint16_t, bool, uint64_t, bool, bool );
+		using fn_t = int( xc_interface *, uint32_t, uint16_t, bool, bool, uint64_t, bool );
 		fn_t *fun  = p->lib_.lookup<fn_t, xc_monitor_write_ctrlreg_fn_name>();
 		return [fun]( xc_interface *xci, uint32_t domid, uint16_t index, bool enable, bool sync,
 		              uint64_t bitmask, bool onchangeonly ) {
@@ -496,9 +501,11 @@ template <> struct XCFactoryImpl<xc_vcpu_set_registers_fn_t, xc_vcpu_set_registe
 			vcpu_guest_context_any_t ctxt;
 			int                      ret = 0;
 
-			StatsCollector::instance().incStat( "xcGetVcpuContext" );
-			if ( ( ret = get_fun( xci, domid, vcpu, &ctxt ) ) != 0 )
-				return ret;
+			{
+				StatsCounter counter( "xcGetVcpuContext" );
+				if ( ( ret = get_fun( xci, domid, vcpu, &ctxt ) ) != 0 )
+					return ret;
+			}
 
 			if ( isX86_64 ) {
 				ctxt.x64.user_regs.rax    = regs.rax;
@@ -536,7 +543,7 @@ template <> struct XCFactoryImpl<xc_vcpu_set_registers_fn_t, xc_vcpu_set_registe
 					ctxt.x32.user_regs.eip = regs.rip;
 			}
 
-			StatsCollector::instance().incStat( "xcSetContext" );
+			StatsCounter counter( "xcSetContext" );
 			ret = set_fun( xci, domid, vcpu, &ctxt );
 
 			return ret;
@@ -565,18 +572,18 @@ XC::XC()
       domainGetTscInfo{ std::bind( XCFactory::instance().domainGetTscInfo, xci_.get(), _1, _2, _3, _4, _5 ) },
       domainSetAccessRequired{ std::bind( XCFactory::instance().domainSetAccessRequired, xci_.get(), _1, _2 ) },
       domainHvmGetContext{ std::bind( XCFactory::instance().domainHvmGetContext, xci_.get(), _1, _2, _3 ) },
-      domainHvmGetContextPartial{
-              std::bind( XCFactory::instance().domainHvmGetContextPartial, xci_.get(), _1, _2, _3, _4, _5 ) },
+      domainHvmGetContextPartial{ std::bind( XCFactory::instance().domainHvmGetContextPartial, xci_.get(), _1, _2, _3,
+	                                     _4, _5 ) },
       setMemAccess{ std::bind( XCFactory::instance().setMemAccess, xci_.get(), _1, _2 ) },
+      altp2mGetMemAccess{ std::bind( XCFactory::instance().altp2mGetMemAccess, xci_.get(), _1, _2, _3, _4 ) },
       altp2mSetMemAccess{ std::bind( XCFactory::instance().altp2mSetMemAccess, xci_.get(), _1, _2, _3 ) },
       altp2mSetDomainState{ std::bind( XCFactory::instance().altp2mSetDomainState, xci_.get(), _1, _2 ) },
       altp2mCreateView{ std::bind( XCFactory::instance().altp2mCreateView, xci_.get(), _1, _2, _3 ) },
       altp2mDestroyView{ std::bind( XCFactory::instance().altp2mDestroyView, xci_.get(), _1, _2 ) },
       altp2mSwitchToView{ std::bind( XCFactory::instance().altp2mSwitchToView, xci_.get(), _1, _2 ) },
+      altp2mSetVcpuEnableNotify{ std::bind( XCFactory::instance().altp2mSetVcpuEnableNotify, xci_.get(), _1, _2, _3 ) },
       mapForeignRange{ std::bind( XCFactory::instance().mapForeignRange, xci_.get(), _1, _2, _3, _4 ) },
       getMemAccess{ std::bind( XCFactory::instance().getMemAccess, xci_.get(), _1, _2, _3 ) },
-      translateForeignAddress{ std::bind( XCFactory::instance().translateForeignAddress, xci_.get(), _1, _2, _3 ) },
-      copyToDomainPage{ std::bind( XCFactory::instance().copyToDomainPage, xci_.get(), _1, _2, _3 ) },
       hvmInjectTrap{ std::bind( XCFactory::instance().hvmInjectTrap, xci_.get(), _1, _2, _3, _4, _5, _6, _7 ) },
       vcpuSetRegisters{ std::bind( XCFactory::instance().vcpuSetRegisters, xci_.get(), _1, _2, _3, _4 ) },
       monitorEnable{ std::bind( XCFactory::instance().monitorEnable, xci_.get(), _1, _2 ) },
@@ -596,7 +603,24 @@ XC::XC()
 		monitorEmulateEachRep = std::bind( XCFactory::instance().monitorEmulateEachRep, xci_.get(), _1, _2 );
 
 	if ( XCFactory::instance().domainSetCoresPerSocket )
-		domainSetCoresPerSocket = std::bind( XCFactory::instance().domainSetCoresPerSocket, xci_.get(), _1, _2 );
+		domainSetCoresPerSocket =
+		        std::bind( XCFactory::instance().domainSetCoresPerSocket, xci_.get(), _1, _2 );
+
+	if ( XCFactory::instance().monitorDescriptorAccess )
+		monitorDescriptorAccess =
+			std::bind( XCFactory::instance().monitorDescriptorAccess, xci_.get(), _1, _2 );
+
+	if ( XCFactory::instance().altp2mSetVcpuDisableNotify )
+		altp2mSetVcpuDisableNotify =
+			std::bind( XCFactory::instance().altp2mSetVcpuDisableNotify, xci_.get(), _1, _2 );
+
+	if ( XCFactory::instance().altp2mSetSuppressVE )
+		altp2mSetSuppressVE =
+			std::bind( XCFactory::instance().altp2mSetSuppressVE, xci_.get(), _1, _2, _3, _4 );
+
+	if ( XCFactory::instance().altp2mGetSuppressVE )
+		altp2mGetSuppressVE =
+			std::bind( XCFactory::instance().altp2mGetSuppressVE, xci_.get(), _1, _2, _3, _4 );
 }
 
 xenmem_access_t XC::xenMemAccess( uint8_t bdvmiBitmask )

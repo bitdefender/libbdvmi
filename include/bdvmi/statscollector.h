@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -19,6 +19,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <atomic>
 
 namespace bdvmi {
 
@@ -35,18 +36,39 @@ public:
 	static StatsCollector &instance();
 
 public:
-	void incStat( const std::string &st );
+	void enable( bool value );
 
-	void addToStat( const std::string &st, unsigned long number );
+	void count( const std::string &                  st,
+	            const std::chrono::duration<double> &duration = std::chrono::duration<double>::zero() );
 
-	// Seconds is the number of seconds elapsed since we've started
-	// collecting them. The dumped stats will show numbers of each
-	// stat per second.
-	std::string dumpStats( int seconds );
+	void dump() const;
 
 private:
-	std::map<std::string, unsigned long> stats_;
-	mutable std::mutex statsMutex_;
+	std::atomic_bool                                     enable_{ false };
+	std::map<std::string, unsigned long>                 counter_;
+	std::map<std::string, std::chrono::duration<double>> duration_;
+	mutable std::mutex                                   statsMutex_;
+};
+
+class StatsCounter {
+
+public:
+	StatsCounter( const std::string &st )
+	{
+		start_ = std::chrono::system_clock::now();
+		name_  = st;
+	}
+
+	~StatsCounter()
+	{
+		stop_ = std::chrono::system_clock::now();
+		StatsCollector::instance().count( name_, stop_ - start_ );
+	}
+
+private:
+	std::string                                                 name_;
+	std::chrono::time_point<std::chrono::high_resolution_clock> start_;
+	std::chrono::time_point<std::chrono::high_resolution_clock> stop_;
 };
 
 } // namespace bdvmi

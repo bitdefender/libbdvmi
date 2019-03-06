@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -20,6 +20,7 @@ namespace bdvmi {
 DynamicLibFactory::DynamicLibFactory( const std::string &libPath )
 {
 	libHandle_ = dlopen( libPath.c_str(), RTLD_NOW | RTLD_GLOBAL );
+
 	if ( !libHandle_ )
 		throw std::runtime_error( "Failed to open the \"" + libPath + "\" library: " + dlerror() );
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -31,8 +31,6 @@
 
 namespace bdvmi {
 
-class LogHelper;
-
 class XenDriver : public Driver {
 
 	struct RegsCache {
@@ -50,11 +48,10 @@ public:
 
 public:
 	// Create a XenDriver object with the domain name
-	XenDriver( const std::string &uuid, LogHelper *logHelper = nullptr, bool hvmOnly = true,
-	           bool useAltP2m = false );
+	XenDriver( const std::string &uuid, bool altp2m, bool hvmOnly = true );
 
 	// Create a XenDriver object with the domain ID (# xm list)
-	XenDriver( domid_t domain, LogHelper *logHelper = nullptr, bool hvmOnly = true, bool useAltP2m = false );
+	XenDriver( domid_t domain, bool altp2m, bool hvmOnly = true );
 
 public:
 	bool cpuCount( unsigned int &count ) const override;
@@ -65,17 +62,10 @@ public:
 
 	bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) override;
 
-	bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length ) override;
-
 	MapReturnCode mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags,
 	                                void *&pointer ) override;
 
 	bool unmapPhysMem( void *hostPtr ) override;
-
-	MapReturnCode mapVirtMemToHost( unsigned long long address, size_t length, uint32_t flags, unsigned short vcpu,
-	                                void *&pointer ) override;
-
-	bool unmapVirtMem( void *hostPtr ) override;
 
 	bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress, uint32_t errorCode ) override;
 
@@ -92,6 +82,27 @@ public:
 	bool getXSAVESize( unsigned short vcpu, size_t &size ) override;
 
 	bool getXSAVEArea( unsigned short vcpu, void *buffer, size_t bufSize ) override;
+
+	bool maxGPFN( unsigned long long &gfn ) override;
+
+	bool getEPTPageConvertible( unsigned short index, unsigned long long address, bool &convertible ) override;
+
+	bool setEPTPageConvertible( unsigned short index, unsigned long long address, bool convertible ) override;
+
+	bool createEPT( unsigned short &index ) override;
+
+	bool destroyEPT( unsigned short index ) override;
+
+	bool switchEPT( unsigned short index ) override;
+
+	bool setVEInfoPage( unsigned short vcpu, unsigned long long gpa ) override;
+
+	bool disableVE( unsigned short vcpu ) override;
+
+	unsigned short eptpIndex() const override
+	{
+		return altp2mViewId_;
+	}
 
 	bool update() override;
 
@@ -113,24 +124,43 @@ public:
 
 	bool isMsrCached( uint64_t msr ) const override;
 
+	// Does this driver support altp2m #VE?
+	bool veSupported() const override
+	{
+		return !!altp2mState_;
+	}
+
+	// Does this driver support altp2m VMFUNC?
+	bool vmfuncSupported() const override
+	{
+		return !!altp2mState_;
+	}
+
+	// Does this driver support Intel SPP?
+	bool sppSupported() const override
+	{
+		return false;
+	}
+
+	bool dtrEventsSupported() const override
+	{
+		return !!xc_.monitorDescriptorAccess && xc_.version >= Version( 4, 11 );
+	}
+
 private:
 	void *mapGuestPageImpl( unsigned long long gfn ) override;
 
 	void unmapGuestPageImpl( void *hostPtr, unsigned long long gfn ) override;
 
-	bool setPageProtectionImpl( const MemAccessMap &accessMap ) override;
+	bool setPageProtectionImpl( const MemAccessMap &accessMap, unsigned short view ) override;
 
-	bool getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute ) override;
+	bool getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
+	                            unsigned short view ) override;
 
 public: // Xen specific-stuff
 	XC &nativeHandle() const
 	{
 		return xc_;
-	}
-
-	uint16_t altp2mViewId() const
-	{
-		return altp2mViewId_;
 	}
 
 public:
@@ -145,12 +175,12 @@ public:
 
 	void clearInjection( unsigned short vcpu );
 
-private:
+public:
 	// Don't allow copying for these objects (class has xci_)
-	XenDriver( const XenDriver & );
+	XenDriver( const XenDriver & ) = delete;
 
 	// Don't allow copying for these objects (class has xci_)
-	XenDriver &operator=( const XenDriver & );
+	XenDriver &operator=( const XenDriver & ) = delete;
 
 private:
 	void init( domid_t domain, bool hvmOnly );
@@ -163,6 +193,8 @@ private:
 
 	bool getPAT( unsigned short vcpu, uint64_t &pat ) const;
 
+	static std::string queryUuid( XS &xs, const std::string &domain );
+
 private:
 	mutable XS        xs_;
 	mutable XC        xc_;
@@ -174,11 +206,12 @@ private:
 	bool              update_{ false };
 	DelayedWrite      delayedWrite_;
 	std::map<unsigned short, bool> pendingInjections_;
-	uint32_t                                   startTime_{ static_cast<uint32_t>(-1) };
-	mutable bool                               patInitialized_{ false };
-	mutable uint64_t                           msrPat_{ 0 };
-	std::unique_ptr<XenAltp2mDomainState>      altp2mState_;
-	std::function<int( const MemAccessMap & )> setMemAccess_;
+	uint32_t             startTime_{ static_cast<uint32_t>( -1 ) };
+	mutable bool         patInitialized_{ false };
+	mutable uint64_t     msrPat_{ 0 };
+	XenAltp2mDomainState altp2mState_;
+	std::function<int( const MemAccessMap &, unsigned short )> setMemAccess_;
+	std::function<int( unsigned long long, xenmem_access_t *, unsigned short )> getMemAccess_;
 };
 
 } // namespace bdvmi

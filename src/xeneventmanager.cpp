@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -16,13 +16,16 @@
 #include "bdvmi/statscollector.h"
 #include "xendriver.h"
 #include "xeneventmanager.h"
+#include "xenvmevent_v3.h"
+#include "xenvmevent_v4.h"
 #include "bdvmi/eventhandler.h"
-#include "bdvmi/loghelper.h"
+#include "bdvmi/logger.h"
 #include <sys/mman.h>
 #include <poll.h>
 #include <errno.h>
 #include <cstring>
 #include <cstdlib>
+#include <iomanip>
 #include <stdexcept>
 
 #define GLA_VALID( x ) ( x.u.mem_access.flags & MEM_ACCESS_GLA_VALID )
@@ -40,19 +43,25 @@
 
 namespace bdvmi {
 
-XenEventManager::XenEventManager( XenDriver &driver, sig_atomic_t &sigStop, LogHelper *logHelper, bool useAltP2m )
+XenEventManager::XenEventManager( XenDriver &driver, sig_atomic_t &sigStop )
     : EventManager{ sigStop }, driver_{ driver }, xc_{ driver_.nativeHandle() },
-      domain_{ static_cast<domid_t>( driver.id() ) }, logHelper_{ logHelper }, useAltP2m_{ useAltP2m }
+      domain_{ static_cast<domid_t>( driver.id() ) }
 {
 	initXenStore();
 
 #ifndef DISABLE_MEM_EVENT
-	initAltP2m();
+	/*
+	if ( xc_.monitorSinglestep( domain_, 1 ) < 0 ) {
+	        cleanup();
+	        throw std::runtime_error( "[ALTP2M] could not enable singlestep monitoring" );
+	}
+	*/
+
 	initMemAccess();
 
 #endif // DISABLE_MEM_EVENT
 
-	LOG_INFO( logHelper_, "Running on Xen ", xc_.version );
+	logger << INFO << "Running on Xen " << xc_.version << std::flush;
 
 #ifdef DEBUG_DUMP_EVENTS
 	std::string eventsFile = "/tmp/" + driver.uuid() + ".events";
@@ -70,7 +79,7 @@ XenEventManager::~XenEventManager()
 
 	// cleanup events
 	try {
-		const int CLEANUP_TRIES = 10;
+		constexpr int CLEANUP_TRIES = 10;
 
 		// Loop until no more events are found in CLEANUP_TRIES ...
 		do {
@@ -85,7 +94,7 @@ XenEventManager::~XenEventManager()
 		for ( int i = 0; i < CLEANUP_TRIES; ++i )
 			waitForEvents();
 	} catch ( const std::exception &e ) {
-		LOG_WARNING( logHelper_, e.what() );
+		logger << WARNING << e.what() << std::flush;
 	} catch ( ... ) {
 		// std::runtime_errors not allowed to escape destructors
 	}
@@ -96,13 +105,13 @@ XenEventManager::~XenEventManager()
 void XenEventManager::cleanup()
 {
 #ifndef DISABLE_MEM_EVENT
-	if ( useAltP2m_ ) {
-		unsigned int cpus = 0;
-		driver_.cpuCount( cpus );
+	/*
+	unsigned int cpus = 0;
+	driver_.cpuCount( cpus );
 
-		for ( unsigned int vcpu = 0; vcpu < cpus; ++vcpu )
-			xc_.domainDebugControl( domain_, vcpu, XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_OFF );
-	}
+	for ( unsigned int vcpu = 0; vcpu < cpus; ++vcpu )
+	        xc_.domainDebugControl( domain_, vcpu, XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_OFF );
+	*/
 
 	/* Tear down domain xenaccess in Xen */
 	if ( ringPage_ )
@@ -124,6 +133,11 @@ void XenEventManager::cleanup()
 	xs_.unwatch( watchToken_, watchToken_ );
 	xs_.unwatch( controlXenStorePath_, watchToken_ );
 	xs_.rm( XS::xbtNull, controlXenStorePath_ );
+
+	if ( useVMEventV4_ )
+		delete static_cast<vm_event_v4_back_ring_t *>( backRing_ );
+	else
+		delete static_cast<vm_event_v3_back_ring_t *>( backRing_ );
 }
 
 bool XenEventManager::enableMsrEventsImpl( unsigned int msr )
@@ -160,7 +174,7 @@ bool XenEventManager::setCrEvents( unsigned int cr, bool enable )
 	retval = xc_.monitorWriteCtrlreg( domain_, index, enable, 1, bitmask, 1 );
 
 	if ( retval ) {
-		LOG_ERROR( logHelper_, "[Xen events] could not set up CR", cr, " event handler" );
+		logger << ERROR << "[Xen events] could not set up CR" << cr << " event handler" << std::flush;
 		return false;
 	}
 
@@ -207,7 +221,37 @@ bool XenEventManager::disableVMCALLEventsImpl()
 	return ( xc_.monitorGuestRequest( domain_, false, true, true ) == 0 );
 }
 
-inline void copyRegisters( Registers &regs, const vm_event_request_t &req )
+bool XenEventManager::enableDescriptorEventsImpl()
+{
+	if ( !driver_.dtrEventsSupported() ) {
+		logger << WARNING << "Descriptor access events support not available!" << std::flush;
+		return false;
+	}
+
+	return ( xc_.monitorDescriptorAccess( domain_, true ) == 0 );
+}
+
+bool XenEventManager::disableDescriptorEventsImpl()
+{
+	if ( !driver_.dtrEventsSupported() ) {
+		logger << WARNING << "Descriptor access events support not available!" << std::flush;
+		return false;
+	}
+
+	return ( xc_.monitorDescriptorAccess( domain_, false ) == 0 );
+}
+
+void copySegmentRegisters( Registers &regs, const vm_event_request_v3_t &req )
+{
+	regs.cs_arbytes = req.data.regs.x86.cs_arbytes;
+}
+
+void copySegmentRegisters( Registers &regs, const vm_event_request_v4_t &req )
+{
+	regs.cs_arbytes = req.data.regs.x86.cs.ar;
+}
+
+template <typename Request> inline void copyRegisters( Registers &regs, const Request &req )
 {
 	regs.sysenter_cs  = req.data.regs.x86.sysenter_cs;
 	regs.sysenter_esp = req.data.regs.x86.sysenter_esp;
@@ -246,7 +290,7 @@ inline void copyRegisters( Registers &regs, const vm_event_request_t &req )
 	regs.cr3    = req.data.regs.x86.cr3;
 	regs.cr4    = req.data.regs.x86.cr4;
 
-	regs.cs_arbytes = req.data.regs.x86.cs_arbytes;
+	copySegmentRegisters( regs, req );
 
 	int32_t x86Mode = XenDriver::guestX86Mode( regs );
 
@@ -266,7 +310,7 @@ inline void copyRegisters( Registers &regs, const vm_event_request_t &req )
 	}
 }
 
-void XenEventManager::setRegisters( vm_event_response_t &rsp )
+template <typename Response> void XenEventManager::setRegisters( Response &rsp )
 {
 	XenDriver::DelayedWrite &dw = driver_.delayedWrite();
 
@@ -296,12 +340,21 @@ void XenEventManager::setRegisters( vm_event_response_t &rsp )
 	if ( xc_.version != Version( 4, 6 ) || xc_.isXenServer )
 		rsp.flags |= VM_EVENT_FLAG_SET_REGISTERS;
 	else
-		LOG_WARNING( logHelper_, "VM_EVENT_FLAG_SET_REGISTERS is not available, try a newer Xen!" );
+		logger << WARNING << "VM_EVENT_FLAG_SET_REGISTERS is not available, try a newer Xen!" << std::flush;
 
 	dw.pending_ = false;
 }
 
 void XenEventManager::waitForEvents()
+{
+	if ( useVMEventV4_ )
+		return waitForEventsByVMEventVersion<vm_event_request_v4_t, vm_event_response_v4_t,
+		                                     vm_event_v4_back_ring_t>();
+
+	return waitForEventsByVMEventVersion<vm_event_request_v3_t, vm_event_response_v3_t, vm_event_v3_back_ring_t>();
+}
+
+template <typename Request, typename Response, typename Ring> void XenEventManager::waitForEventsByVMEventVersion()
 {
 	EventHandler *h            = handler();
 	bool          shuttingDown = false;
@@ -317,22 +370,13 @@ void XenEventManager::waitForEvents()
 			shuttingDown = true;
 
 #ifndef DISABLE_MEM_EVENT
-		vm_event_request_t  req;
-		vm_event_response_t rsp;
+		Request  req;
+		Response rsp;
 
 		int events = 0;
 
-		while ( RING_HAS_UNCONSUMED_REQUESTS( &backRing_ ) ) {
-			getRequest( &req );
-
-			static const uint32_t interfaceVersion = req.version;
-			static bool           first            = true;
-
-			if ( first ) {
-				LOG_DEBUG( logHelper_, "VM_EVENT_INTERFACE_VERSION: 0x", std::hex, std::setfill( '0' ),
-				           std::setw( 8 ), interfaceVersion );
-				first = false;
-			}
+		while ( RING_HAS_UNCONSUMED_REQUESTS( static_cast<Ring *>( backRing_ ) ) ) {
+			getRequest<Request, Ring>( req );
 
 #ifdef DEBUG_DUMP_EVENTS
 			eventsFile_.write( ( const char * )&req, sizeof( req ) );
@@ -340,7 +384,7 @@ void XenEventManager::waitForEvents()
 			++events;
 			foundEvents_ = true;
 
-			StatsCollector::instance().incStat( "eventCount" );
+			StatsCounter counter( "eventCount" );
 
 			memset( &rsp, 0, sizeof( rsp ) );
 			rsp.vcpu_id       = req.vcpu_id;
@@ -349,7 +393,7 @@ void XenEventManager::waitForEvents()
 			rsp.altp2m_idx    = req.altp2m_idx;
 			rsp.data.regs.x86 = req.data.regs.x86;
 
-			rsp.version            = interfaceVersion;
+			rsp.version            = vmEventInterfaceVersion_;
 			rsp.u.mem_access.flags = req.u.mem_access.flags;
 
 			driver_.enableCache( req.vcpu_id );
@@ -365,7 +409,7 @@ void XenEventManager::waitForEvents()
 					Registers regs;
 					uint32_t  rspDataSize = sizeof( rsp.data.emul.read.data );
 
-					StatsCollector::instance().incStat( "eventsMemAccess" );
+					StatsCounter counter( "eventsMemAccess" );
 
 					copyRegisters( regs, req );
 
@@ -387,10 +431,9 @@ void XenEventManager::waitForEvents()
 						uint64_t gpa = ( req.u.mem_access.gfn << XC::pageShift ) +
 						               req.u.mem_access.offset;
 
-						if ( !gptFault )
-							h->handlePageFault( req.vcpu_id, regs, gpa, gva, read, write,
-							                    execute, action, rsp.data.emul.read.data,
-							                    rspDataSize, instructionSize );
+						h->handlePageFault( req.vcpu_id, regs, gpa, gva, read, write, execute,
+						                    gptFault, action, rsp.data.emul.read.data,
+						                    rspDataSize, instructionSize );
 
 						switch ( action ) {
 							case EMULATE_NOWRITE:
@@ -420,13 +463,15 @@ void XenEventManager::waitForEvents()
 
 							case NONE:
 							default:
-								if ( useAltP2m_ && ( execute || gptFault ) &&
+								/*
+								if ( useAltP2m_ && // ( execute || gptFault ) &&
 								     req.flags & VM_EVENT_FLAG_ALTERNATE_P2M ) {
-									rsp.flags = req.flags |
-									            VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
-									rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
-									rsp.altp2m_idx = 0;
+								        rsp.flags = req.flags |
+								                    VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
+								        rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
+								        rsp.altp2m_idx = 0;
 								}
+								*/
 								break;
 						}
 					}
@@ -434,23 +479,21 @@ void XenEventManager::waitForEvents()
 					break;
 				}
 
-				case VM_EVENT_REASON_SINGLESTEP:
-					StatsCollector::instance().incStat( "eventsSingleStep" );
+				case VM_EVENT_REASON_SINGLESTEP: {
+					StatsCounter counter( "eventsSingleStep" );
 
-					if ( useAltP2m_ ) {
-						rsp.reason = req.reason;
-						rsp.flags |=
-						        VM_EVENT_FLAG_ALTERNATE_P2M | VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
-						rsp.altp2m_idx = driver_.altp2mViewId();
-					}
+					rsp.reason = req.reason;
+					rsp.flags |= VM_EVENT_FLAG_ALTERNATE_P2M | VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
+					rsp.altp2m_idx = driver_.eptpIndex();
 
 					break;
+				}
 
 				case VM_EVENT_REASON_WRITE_CTRLREG: {
 					Registers      regs;
 					unsigned short crNumber = 3;
 
-					StatsCollector::instance().incStat( "eventsWriteCtrlReg" );
+					StatsCounter counter( "eventsWriteCtrlReg" );
 
 					rsp.u.write_ctrlreg.index = req.u.write_ctrlreg.index;
 
@@ -489,14 +532,14 @@ void XenEventManager::waitForEvents()
 					break;
 				}
 
-				case VM_EVENT_REASON_MOV_TO_MSR:
-					StatsCollector::instance().incStat( "eventsMovToMsr" );
+				case VM_EVENT_REASON_MOV_TO_MSR: {
+					StatsCounter counter( "eventsMovToMsr" );
 
 					if ( h ) {
 						HVAction action = NONE;
 
 						uint64_t oldValue;
-						if ( interfaceVersion > 0x00000002 ) {
+						if ( vmEventInterfaceVersion_ > 0x00000002 ) {
 							oldValue = req.u.mov_to_msr.old_value;
 						} else {
 							auto i = msrOldValueCache_.find( req.vcpu_id );
@@ -518,15 +561,16 @@ void XenEventManager::waitForEvents()
 
 						if ( action == SKIP_INSTRUCTION || action == EMULATE_NOWRITE )
 							rsp.flags |= VM_EVENT_FLAG_DENY;
-						else if ( interfaceVersion <= 0x00000002 )
+						else if ( vmEventInterfaceVersion_ <= 0x00000002 )
 							msrOldValueCache_[req.vcpu_id][req.u.mov_to_msr.msr] =
 							        req.u.mov_to_msr.new_value;
 					}
 
 					break;
+				}
 
 				case VM_EVENT_REASON_GUEST_REQUEST: {
-					StatsCollector::instance().incStat( "eventsGuestRequest" );
+					StatsCounter counter( "eventsGuestRequest" );
 
 					if ( h ) {
 						Registers regs;
@@ -539,15 +583,15 @@ void XenEventManager::waitForEvents()
 				}
 
 				case VM_EVENT_REASON_SOFTWARE_BREAKPOINT: {
-					StatsCollector::instance().incStat( "eventsBreakPoint" );
+					StatsCounter counter( "eventsBreakPoint" );
 
 					bool     reinject = ( h != nullptr );
-					uint32_t insn_len = ( interfaceVersion < 0x00000002
+					uint32_t insn_len = ( vmEventInterfaceVersion_ < 0x00000002
 					                              ? 1
 					                              : req.u.software_breakpoint.insn_length );
-					uint8_t type =
-					        ( interfaceVersion < 0x00000002 ? HVMOP_TRAP_sw_exc
-					                                        : req.u.software_breakpoint.type );
+					uint8_t type = ( vmEventInterfaceVersion_ < 0x00000002
+					                         ? HVMOP_TRAP_sw_exc
+					                         : req.u.software_breakpoint.type );
 
 					if ( h ) {
 						Registers regs;
@@ -561,7 +605,7 @@ void XenEventManager::waitForEvents()
 					if ( reinject &&
 					     xc_.hvmInjectTrap( domain_, req.vcpu_id, X86_TRAP_INT3, type, ~0u,
 					                        insn_len, 0 ) < 0 )
-						LOG_ERROR( logHelper_, "Could not reinject breakpoint" );
+						logger << ERROR << "Could not reinject breakpoint" << std::flush;
 
 					break;
 				}
@@ -577,6 +621,53 @@ void XenEventManager::waitForEvents()
 					}
 
 					break;
+
+				case VM_EVENT_REASON_DESCRIPTOR_ACCESS:
+					if ( h ) {
+						HVAction  action = NONE;
+						Registers regs;
+						copyRegisters( regs, req );
+
+						unsigned int flags = 0;
+
+						switch ( req.u.desc_access.descriptor ) {
+							case VM_EVENT_DESC_IDTR:
+								flags |= BDVMI_DESC_ACCESS_IDTR;
+								break;
+							case VM_EVENT_DESC_GDTR:
+								flags |= BDVMI_DESC_ACCESS_GDTR;
+								break;
+							case VM_EVENT_DESC_LDTR:
+								flags |= BDVMI_DESC_ACCESS_LDTR;
+								break;
+							case VM_EVENT_DESC_TR:
+								flags |= BDVMI_DESC_ACCESS_TR;
+								break;
+						}
+
+						flags |= ( req.u.desc_access.is_write ? BDVMI_DESC_ACCESS_WRITE
+						                                      : BDVMI_DESC_ACCESS_READ );
+
+						unsigned short instructionSize = 0;
+
+						h->handleDescriptorAccess( req.vcpu_id, regs, flags, instructionSize,
+						                           action );
+
+						if ( action == SKIP_INSTRUCTION || action == EMULATE_NOWRITE ) {
+							if ( xc_.version != Version( 4, 6 ) || xc_.isXenServer ) {
+								skip = true;
+								rsp.data.regs.x86.rip =
+								        req.data.regs.x86.rip + instructionSize;
+								rsp.flags |= VM_EVENT_FLAG_SET_REGISTERS;
+							} else
+								logger << ERROR << "No instruction skip support!"
+								       << std::flush;
+						} else
+							rsp.flags |= VM_EVENT_FLAG_EMULATE;
+					}
+
+					break;
+
 				default:
 					// unknown reason code
 					break;
@@ -586,9 +677,9 @@ void XenEventManager::waitForEvents()
 				if ( xc_.version >= Version( 4, 9 ) || xc_.isXenServer )
 					rsp.flags |= VM_EVENT_FLAG_GET_NEXT_INTERRUPT;
 				else
-					LOG_WARNING(
-					        logHelper_,
-					        "VM_EVENT_FLAG_GET_NEXT_INTERRUPT is not available, try a newer Xen!" );
+					logger << WARNING
+					       << "VM_EVENT_FLAG_GET_NEXT_INTERRUPT is not available, try a newer Xen!"
+					       << std::flush;
 				driver_.clearInjection( req.vcpu_id );
 			}
 
@@ -603,7 +694,7 @@ void XenEventManager::waitForEvents()
 			driver_.disableCache();
 
 			/* Put the page info on the ring */
-			putResponse( &rsp );
+			putResponse<Response, Ring>( rsp );
 			resumePage();
 		}
 
@@ -644,13 +735,20 @@ void XenEventManager::initXenStore()
 	const std::string value = "started";
 
 	if ( !xs_.write( XS::xbtNull, controlXenStorePath_, value.c_str(), value.length() ) )
-		LOG_ERROR( logHelper_, "Could not write XenStore key ", controlXenStorePath_ );
+		logger << ERROR << "Could not write XenStore key " << controlXenStorePath_ << std::flush;
 
 	if ( !xs_.watch( "@releaseDomain", watchToken_ ) || !xs_.watch( watchToken_, watchToken_ ) ||
-	     !xs_.watch( controlXenStorePath_, watchToken_ ) ) {
+	     !xs_.watch( controlXenStorePath_, watchToken_ ) )
 		throw std::runtime_error( "[Xen events] xs_watch() failed" );
-	}
 }
+
+#define INIT_EVENT_CHANNEL( VERSION )                                                                                  \
+	{                                                                                                              \
+		backRing_ = new vm_event_v##VERSION##_back_ring_t;                                                     \
+		SHARED_RING_INIT( ( vm_event_v##VERSION##_sring_t * )ringPage_ );                                      \
+		BACK_RING_INIT( ( vm_event_v##VERSION##_back_ring_t * )backRing_,                                      \
+		                ( vm_event_v##VERSION##_sring_t * )ringPage_, XC::pageSize );                          \
+	}
 
 void XenEventManager::initEventChannels()
 {
@@ -674,10 +772,12 @@ void XenEventManager::initEventChannels()
 
 	evtchnBindOn_ = true;
 
-/* Initialise ring */
 #define private rprivate
-	SHARED_RING_INIT( ( vm_event_sring_t * )ringPage_ );
-	BACK_RING_INIT( &backRing_, ( vm_event_sring_t * )ringPage_, XC::pageSize );
+	if ( xc_.version >= Version( 4, 12 ) ) {
+		useVMEventV4_ = true;
+		INIT_EVENT_CHANNEL( 4 );
+	} else
+		INIT_EVENT_CHANNEL( 3 );
 #undef private
 }
 
@@ -708,17 +808,6 @@ void XenEventManager::initMemAccess()
 	initEventChannels();
 
 	xc_.domainSetAccessRequired( domain_, 0 );
-}
-
-void XenEventManager::initAltP2m()
-{
-	if ( !useAltP2m_ )
-		return;
-
-	if ( xc_.monitorSinglestep( domain_, 1 ) < 0 ) {
-		cleanup();
-		throw std::runtime_error( "[ALTP2M] could not enable singlestep monitoring" );
-	}
 }
 
 int XenEventManager::waitForEventOrTimeout( int ms )
@@ -777,18 +866,17 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 				}
 			} else if ( vec[XS::watchPath] == controlXenStorePath_ ) {
 
-				if ( firstXenServerWatch_ ) {
+				if ( firstControlCommand_ ) {
 					// Ignore first triggered watch, xs_watch() does that.
-					firstXenServerWatch_ = false;
+					firstControlCommand_ = false;
 				} else {
-					char *value = static_cast<char *>(
+					CUniquePtr<char> value(
 					        xs_.readTimeout( XS::xbtNull, vec[XS::watchPath], nullptr, 1 ) );
 
 					if ( value ) {
-						std::string tmp = value;
-						free( value );
+						std::string tmp = value.get();
 
-						LOG_INFO( logHelper_, "Received control command: ", tmp );
+						logger << INFO << "Received control command: " << tmp << std::flush;
 
 						if ( tmp == "shutdown" ) {
 							guestStillRunning_ = true;
@@ -825,38 +913,39 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 	throw std::runtime_error( "[Xen events] error getting event" );
 }
 
-void XenEventManager::getRequest( vm_event_request_t *req )
+template <typename Request, typename Ring> void XenEventManager::getRequest( Request &req )
 {
-	vm_event_back_ring_t *back_ring;
-	RING_IDX              req_cons;
+	Ring *      backRing   = static_cast<Ring *>( backRing_ );
+	RING_IDX    reqCons    = backRing->req_cons;
+	const void *ringReqPtr = RING_GET_REQUEST( backRing, reqCons );
 
-	back_ring = &backRing_;
-	req_cons  = back_ring->req_cons;
+	if ( !vmEventInterfaceVersion_ ) {
+		vmEventInterfaceVersion_ = *static_cast<const uint32_t *>( ringReqPtr );
+		logger << DEBUG << "VM_EVENT_INTERFACE_VERSION: 0x" << std::hex << std::setfill( '0' ) << std::setw( 8 )
+		       << vmEventInterfaceVersion_ << std::flush;
+	}
 
 	/* Copy request */
-	memcpy( req, RING_GET_REQUEST( back_ring, req_cons ), sizeof( *req ) );
-	++req_cons;
+	memcpy( &req, ringReqPtr, sizeof( req ) );
+	++reqCons;
 
 	/* Update ring */
-	back_ring->req_cons         = req_cons;
-	back_ring->sring->req_event = req_cons + 1;
+	backRing->req_cons         = reqCons;
+	backRing->sring->req_event = reqCons + 1;
 }
 
-void XenEventManager::putResponse( vm_event_response_t *rsp )
+template <typename Response, typename Ring> void XenEventManager::putResponse( const Response &rsp )
 {
-	vm_event_back_ring_t *back_ring;
-	RING_IDX              rsp_prod;
-
-	back_ring = &backRing_;
-	rsp_prod  = back_ring->rsp_prod_pvt;
+	Ring *   backRing = static_cast<Ring *>( backRing_ );
+	RING_IDX rspProd  = backRing->rsp_prod_pvt;
 
 	/* Copy response */
-	memcpy( RING_GET_RESPONSE( back_ring, rsp_prod ), rsp, sizeof( *rsp ) );
-	++rsp_prod;
+	memcpy( RING_GET_RESPONSE( backRing, rspProd ), &rsp, sizeof( rsp ) );
+	++rspProd;
 
 	/* Update ring */
-	back_ring->rsp_prod_pvt = rsp_prod;
-	RING_PUSH_RESPONSES( back_ring );
+	backRing->rsp_prod_pvt = rspProd;
+	RING_PUSH_RESPONSES( backRing );
 }
 
 void XenEventManager::resumePage()

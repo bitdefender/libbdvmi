@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -25,6 +25,13 @@ class Registers;
 
 enum HVAction { NONE, EMULATE_NOWRITE, SKIP_INSTRUCTION, ALLOW_VIRTUAL, EMULATE_SET_CTXT };
 
+#define BDVMI_DESC_ACCESS_IDTR  0x01
+#define BDVMI_DESC_ACCESS_GDTR  0x02
+#define BDVMI_DESC_ACCESS_TR    0x04
+#define BDVMI_DESC_ACCESS_LDTR  0x08
+#define BDVMI_DESC_ACCESS_READ  0x10
+#define BDVMI_DESC_ACCESS_WRITE 0x20
+
 class EventHandler {
 
 public:
@@ -42,8 +49,9 @@ public:
 
 	// Callback for page faults.
 	virtual void handlePageFault( unsigned short vcpu, const Registers &regs, uint64_t physAddress,
-	                              uint64_t virtAddress, bool read, bool write, bool execute, HVAction &action,
-	                              uint8_t *emulatorCtx, uint32_t &emuCtxSize, unsigned short &instructionSize ) = 0;
+	                              uint64_t virtAddress, bool read, bool write, bool execute, bool inGpt,
+				      HVAction &action, uint8_t *emulatorCtx, uint32_t &emuCtxSize,
+				      unsigned short &instructionSize ) = 0;
 
 	// Callback for VMCALL events.
 	virtual void handleVMCALL( unsigned short vcpu, const Registers &regs ) = 0;
@@ -55,6 +63,10 @@ public:
 
 	virtual void handleInterrupt( unsigned short vcpu, const Registers &regs, uint32_t vector, uint64_t errorCode,
 	                              uint64_t cr2 ) = 0;
+
+	virtual void handleDescriptorAccess( unsigned short vcpu, const Registers &regs,
+	                                     unsigned int flags, unsigned short &instructionLength,
+					     HVAction &action ) = 0;
 
 	// Notice that the connection to the guest has been terminated (if guestStillRunning is true
 	// then this has _not_ happened because the guest shut down or has been forcefully terminated).

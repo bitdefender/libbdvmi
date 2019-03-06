@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -66,6 +66,10 @@ public:
 
 	bool disableVMCALLEvents();
 
+	bool enableDescriptorEvents();
+
+	bool disableDescriptorEvents();
+
 	// Loop waiting for events
 	virtual void waitForEvents() = 0;
 
@@ -74,25 +78,6 @@ public:
 
 	// Get the domain UUID
 	virtual std::string uuid() = 0;
-
-	//
-	// If a guest cannot be hooked until it is rebooted, the backend
-	// might need to be informed about this. For example, on KVM we
-	// need to hold on to the guest until said event otherwise qemu
-	// will automatically re-trigger a new guest notification leading
-	// to a loop where we continuosly try to hook, determine we are
-	// unable to do so, disconnect, get re-notified and so on.
-	//
-	// The same applies for domains running unsupported OS-es.
-	//
-	virtual void waitForReboot()
-	{
-	}
-
-	void lastSignal( int sig )
-	{
-		lastSignal_ = sig;
-	}
 
 private:
 	virtual bool enableMsrEventsImpl( unsigned int msr ) = 0;
@@ -115,17 +100,27 @@ private:
 
 	virtual bool disableVMCALLEventsImpl() = 0;
 
+	virtual bool enableDescriptorEventsImpl()
+	{
+		return false;
+	}
+
+	virtual bool disableDescriptorEventsImpl()
+	{
+		return false;
+	}
+
 protected:
 	sig_atomic_t &         sigStop_;
 	std::set<unsigned int> enabledCrs_;
 	std::set<unsigned int> enabledMsrs_;
-	sig_atomic_t           lastSignal_{ 0 };
 
 private:
 	EventHandler *handler_{ nullptr };
 	bool          breakpointEnabled_{ false };
 	bool          xsetbvEnabled_{ false };
 	bool          vmcallEnabled_{ false };
+	bool          descriptorEnabled_{ false };
 };
 } // namespace bdvmi
 

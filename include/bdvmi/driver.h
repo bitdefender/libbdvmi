@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -49,7 +49,6 @@
 namespace bdvmi {
 
 class PageCache;
-class LogHelper;
 
 struct Registers {
 
@@ -116,7 +115,6 @@ struct Registers {
 	uint64_t cr2{};
 	uint64_t cr3{};
 	uint64_t cr4{};
-	uint64_t cr8{};
 
 	uint32_t cs_arbytes{};
 
@@ -132,11 +130,12 @@ class Driver {
 public:
 	enum PageRestriction { PAGE_READ = 1 << 0, PAGE_WRITE = 1 << 1, PAGE_EXECUTE = 1 << 2 };
 
-	using MemAccessMap = std::map<uint64_t, uint8_t>;
+	using MemAccessMap     = std::map<uint64_t, uint8_t>;
+	using ViewMemAccessMap = std::map<uint16_t, MemAccessMap>;
 
 public:
-	Driver( EventHandler *handler = nullptr, LogHelper *logHelper = nullptr )
-	    : handler_{ handler }, logHelper_{ logHelper }
+	Driver( EventHandler *handler = nullptr )
+	    : handler_{ handler }
 	{
 	}
 
@@ -162,13 +161,12 @@ public:
 	virtual bool tscSpeed( unsigned long long &speed ) const = 0;
 
 	// Set guest page protection (_NOT_ virtual)
-	bool setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute );
+	bool setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute,
+	                        unsigned short view = 0 );
 
 	// Get guest page protection (_NOT_ virtual)
-	bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute );
-
-	// Get delayed guest page protection (_NOT_ virtual)
-	bool getDelayedPageProtection( unsigned long long guestAddress, unsigned &access );
+	bool getPageProtection( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
+	                        unsigned short view = 0 );
 
 	// Flush page protections (_NOT_ virtual)
 	void flushPageProtections();
@@ -179,18 +177,10 @@ public:
 	// Set registers
 	virtual bool setRegisters( unsigned short vcpu, const Registers &regs, bool setEip, bool delay ) = 0;
 
-	// Write to physical address
-	virtual bool writeToPhysAddress( unsigned long long address, void *buffer, size_t length ) = 0;
-
 	virtual MapReturnCode mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags,
 	                                        void *&pointer ) = 0;
 
 	virtual bool unmapPhysMem( void *hostPtr ) = 0;
-
-	virtual MapReturnCode mapVirtMemToHost( unsigned long long address, size_t length, uint32_t flags,
-	                                        unsigned short vcpu, void *&pointer ) = 0;
-
-	virtual bool unmapVirtMem( void *hostPtr ) = 0;
 
 	virtual bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
 	                               uint32_t errorCode ) = 0;
@@ -209,6 +199,24 @@ public:
 
 	virtual bool getXSAVEArea( unsigned short vcpu, void *buffer, size_t bufSize ) = 0;
 
+	virtual bool maxGPFN( unsigned long long &gfn ) = 0;
+
+	virtual bool getEPTPageConvertible( unsigned short index, unsigned long long address, bool &convertible ) = 0;
+
+	virtual bool setEPTPageConvertible( unsigned short index, unsigned long long address, bool convertible ) = 0;
+
+	virtual bool createEPT( unsigned short &index ) = 0;
+
+	virtual bool destroyEPT( unsigned short index ) = 0;
+
+	virtual bool switchEPT( unsigned short index ) = 0;
+
+	virtual bool setVEInfoPage( unsigned short vcpu, unsigned long long gpa ) = 0;
+
+	virtual bool disableVE( unsigned short vcpu ) = 0;
+
+	virtual unsigned short eptpIndex() const = 0;
+
 	virtual bool update() = 0;
 
 	virtual std::string uuid() const = 0;
@@ -223,27 +231,36 @@ public:
 
 	virtual bool isMsrCached( uint64_t msr ) const = 0;
 
+	// Does this driver support altp2m #VE?
+	virtual bool veSupported() const = 0;
+
+	// Does this driver support altp2m VMFUNC?
+	virtual bool vmfuncSupported() const = 0;
+
+	// Does this driver support Intel SPP?
+	virtual bool sppSupported() const = 0;
+
+	// Does this driver support DTR events?
+	virtual bool dtrEventsSupported() const = 0;
+
 private:
 	virtual void *mapGuestPageImpl( unsigned long long gfn ) = 0;
 
 	virtual void unmapGuestPageImpl( void *hostPtr, unsigned long long gfn ) = 0;
 
-	virtual bool setPageProtectionImpl( const MemAccessMap &accessMap ) = 0;
+	virtual bool setPageProtectionImpl( const MemAccessMap &accessMap, unsigned short view ) = 0;
 
 	// Get guest page protection
-	virtual bool getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write,
-	                                    bool &execute ) = 0;
+	virtual bool getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
+	                                    unsigned short view ) = 0;
 
 private:
-	EventHandler *handler_{ nullptr };
-	MemAccessMap  memAccessCache_;
-	MemAccessMap  delayedMemAccessWrite_;
-	std::mutex    memAccessCacheMutex_;
+	EventHandler *   handler_{ nullptr };
+	ViewMemAccessMap memAccessCache_;
+	ViewMemAccessMap delayedMemAccessWrite_;
+	std::mutex       memAccessCacheMutex_;
 
 	friend class PageCache;
-
-protected:
-	LogHelper *logHelper_{ nullptr };
 };
 
 } // namespace bdvmi

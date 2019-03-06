@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -14,13 +14,15 @@
 // License along with this library.
 
 #include "bdvmi/eventhandler.h"
+#include <bdvmi/logger.h>
 #include "bdvmi/statscollector.h"
-#include "bdvmi/loghelper.h"
+#include "utils.h"
 #include "xcwrapper.h"
 #include "xendriver.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <stdexcept>
 #include <vector>
 #include <sys/mman.h>
@@ -57,22 +59,33 @@ static bool check_page( void *addr )
 
 using namespace std::placeholders;
 
-XenDriver::XenDriver( domid_t domain, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
-    : Driver{ nullptr, logHelper }, domain_{ domain }, pageCache_{ *this, logHelper },
-      altp2mState_{ useAltP2m ? new XenAltp2mDomainState{ xc_, domain } : nullptr }
+XenDriver::XenDriver( domid_t domain, bool altp2m, bool hvmOnly )
+    : domain_{ domain }, pageCache_{ *this }, altp2mState_{ xc_, domain, altp2m }
 {
-	if ( altp2mState_ )
-		setMemAccess_ = [this]( const MemAccessMap &map ) {
-			return xc_.altp2mSetMemAccess( domain_, altp2mViewId_, map );
+	getMemAccess_ = [this]( unsigned long long gpa, xenmem_access_t *access, unsigned short ) {
+		return xc_.getMemAccess( domain_, gpa, access );
+	};
+
+	if ( altp2mState_ ) {
+		setMemAccess_ = [this]( const MemAccessMap &map, unsigned short view ) {
+			return xc_.altp2mSetMemAccess( domain_, view, map );
 		};
-	else
-		setMemAccess_ = [this]( const MemAccessMap &map ) { return xc_.setMemAccess( domain_, map ); };
+
+		if ( xc_.altp2mGetMemAccess )
+			getMemAccess_ = [this]( unsigned long long gpa, xenmem_access_t *access, unsigned short view ) {
+				return xc_.altp2mGetMemAccess( domain_, view, gpa, access );
+			};
+	} else {
+		setMemAccess_ = [this]( const MemAccessMap &map, unsigned short ) {
+			return xc_.setMemAccess( domain_, map );
+		};
+	}
 
 	init( domain, hvmOnly );
 }
 
-XenDriver::XenDriver( const std::string &uuid, LogHelper *logHelper, bool hvmOnly, bool useAltP2m )
-    : XenDriver{ XenDriver::getDomainId( uuid ), logHelper, hvmOnly, useAltP2m }
+XenDriver::XenDriver( const std::string &uuid, bool altp2m, bool hvmOnly )
+    : XenDriver{ XenDriver::getDomainId( uuid ), altp2m, hvmOnly }
 {
 }
 
@@ -96,10 +109,10 @@ bool XenDriver::cpuCount( unsigned int &count ) const
 {
 	XenDomainInfo info;
 
-	StatsCollector::instance().incStat( "xcDomainInfo" );
+	StatsCounter counter( "xcDomainInfo" );
 
 	if ( xc_.domainGetInfo( domain_, info ) != 1 ) {
-		LOG_ERROR( logHelper_, "xc_domain_getinfo() failed: ", strerror( errno ) );
+		logger << ERROR << "xc_domain_getinfo() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
@@ -114,10 +127,10 @@ bool XenDriver::tscSpeed( unsigned long long &speed ) const
 	uint64_t elapsed_nsec;
 	uint32_t tsc_mode, gtsc_khz, incarnation;
 
-	StatsCollector::instance().incStat( "xcTscInfo" );
+	StatsCounter counter( "xcTscInfo" );
 
 	if ( xc_.domainGetTscInfo( domain_, &tsc_mode, &elapsed_nsec, &gtsc_khz, &incarnation ) != 0 ) {
-		LOG_ERROR( logHelper_, "xc_domain_get_tsc_info() failed: ", strerror( errno ) );
+		logger << ERROR << "xc_domain_get_tsc_info() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
@@ -126,29 +139,30 @@ bool XenDriver::tscSpeed( unsigned long long &speed ) const
 	return true;
 }
 
-bool XenDriver::setPageProtectionImpl( const MemAccessMap &accessMap )
+bool XenDriver::setPageProtectionImpl( const MemAccessMap &accessMap, unsigned short view )
 {
 	if ( accessMap.empty() )
 		return true;
 
-	if ( setMemAccess_( accessMap ) ) {
-		LOG_ERROR( logHelper_, "XenDriver::setPageProtectionImpl() failed: ", strerror( errno ) );
+	if ( setMemAccess_( accessMap, view ) ) {
+		logger << ERROR << "XenDriver::setPageProtectionImpl() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
 	return true;
 }
 
-bool XenDriver::getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute )
+bool XenDriver::getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
+                                       unsigned short view )
 {
 	xenmem_access_t memaccess;
 	unsigned long   gfn = gpa_to_gfn( guestAddress );
 
-	StatsCollector::instance().incStat( "xcGetMemAccess" );
+	StatsCounter counter( "xcGetMemAccess" );
 
-	if ( xc_.getMemAccess( domain_, gfn, &memaccess ) ) {
+	if ( getMemAccess_( gfn, &memaccess, view ) ) {
 		if ( errno != ESRCH )
-			LOG_ERROR( logHelper_, "xc_get_mem_access() failed: ", strerror( errno ) );
+			logger << ERROR << "xc_get_mem_access() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
@@ -210,8 +224,8 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 		return true;
 	}
 
-	StatsCollector::instance().incStat( "partialContext" );
-	StatsCollector::instance().incStat( "partialCpu" );
+	StatsCounter ctxCounter( "partialContext" );
+	StatsCounter partialCounter( "partialCpu" );
 
 	struct hvm_hw_cpu hwCpu;
 
@@ -219,8 +233,8 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 		EventHandler *h          = handler();
 		int           savedErrno = errno;
 
-		LOG_ERROR( logHelper_, "xc_domain_hvm_getcontext_partial() (vcpu = ", vcpu, ") failed: ",
-		           strerror( errno ) );
+		logger << ERROR << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu
+		       << ") failed: " << strerror( errno ) << std::flush;
 
 		if ( savedErrno == EINVAL && h )
 			h->handleFatalError();
@@ -270,7 +284,6 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 	regs.cr2          = hwCpu.cr2;
 	regs.cr3          = hwCpu.cr3;
 	regs.cr4          = hwCpu.cr4;
-	regs.cr8          = 0; // can't get this with Xen / userspace
 	regs.cs_arbytes   = hwCpu.cs_arbytes;
 
 	regs.cs_base    = hwCpu.cs_base;
@@ -351,7 +364,7 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 
 	if ( !delay ) {
 		if ( xc_.vcpuSetRegisters( domain_, vcpu, regs, setEip ) != 0 ) {
-			LOG_ERROR( logHelper_, "xc_vcpu_set_context failed", strerror( errno ) );
+			logger << ERROR << "xc_vcpu_set_context failed" << strerror( errno ) << std::flush;
 			return false;
 		}
 	} else {
@@ -391,28 +404,10 @@ bool XenDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool s
 	return true;
 }
 
-bool XenDriver::writeToPhysAddress( unsigned long long address, void *buffer, size_t length )
-{
-	unsigned long gfn = gpa_to_gfn( address );
-
-	if ( length < XC::pageSize )
-		return false;
-
-	StatsCollector::instance().incStat( "xcCopyPage" );
-
-	// Copy the whole page - can't find another way to do it with libxc.
-	if ( xc_.copyToDomainPage( domain_, gfn, static_cast<const char *>( buffer ) ) ) {
-		LOG_ERROR( logHelper_, "xc_copy_to_domain_page() failed: ", strerror( errno ) );
-		return false;
-	}
-
-	return true;
-}
-
 bool XenDriver::shutdown()
 {
 	if ( xc_.domainShutdown( domain_, XC::shutdownPoweroff ) ) {
-		LOG_ERROR( logHelper_, "xc_domain_shutdown() failed: ", strerror( errno ) );
+		logger << ERROR << "xc_domain_shutdown() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
@@ -424,7 +419,7 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 	XenDomainInfo info;
 	XenDomctlInfo domctlInfo;
 
-	StatsCollector::instance().incStat( "xcDomainInfo" );
+	StatsCounter counter( "xcDomainInfo" );
 
 	if ( xc_.domainGetInfo( domain_, info ) != 1 && xc_.domainGetInfoList( domain_, domctlInfo ) != 1 )
 		throw std::runtime_error( "xc_domain_getinfo() failed" );
@@ -441,31 +436,13 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 		throw std::runtime_error( "Domain " + std::to_string( domain ) +
 		                          " is shutting down / dying, won't hook it" );
 
-	unsigned int size;
-
-	std::string key = "/local/domain/" + std::to_string( domain_ ) + "/vm";
-
-	char *path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, key, &size, 1 ) );
-
-	if ( path && path[0] != '\0' ) {
-		key = std::string( path ) + "/uuid";
-
-		free( path );
-		size = 0;
-
-		path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, key, &size, 1 ) );
-
-		if ( path && path[0] != '\0' )
-			uuid_ = path;
-	}
-
-	free( path );
+	uuid_ = queryUuid( xs_, std::to_string( domain_ ) );
 
 	if ( altp2mState_ ) {
-		if ( altp2mState_->createView( XENMEM_access_rwx, altp2mViewId_ ) < 0 )
+		if ( altp2mState_.createView( XENMEM_access_rwx, altp2mViewId_ ) < 0 )
 			throw std::runtime_error( "[ALTP2M] could not create altp2m view" );
 
-		if ( altp2mState_->switchToView( altp2mViewId_ ) < 0 )
+		if ( altp2mState_.switchToView( altp2mViewId_ ) < 0 )
 			throw std::runtime_error( "[ALTP2M] could not switch to altp2m view" );
 	}
 }
@@ -480,30 +457,30 @@ domid_t XenDriver::getDomainId( const std::string &uuid )
 		throw std::runtime_error( "Failed to retrieve domain ID by UUID [" + uuid + "]: " + strerror( errno ) );
 
 	for ( auto &&domain : domains ) {
+		std::string tmpUuid = queryUuid( xs, domain );
 
-		std::string tmp = "/local/domain/" + domain + "/vm";
-
-		char *path = static_cast<char *>( xs.readTimeout( XS::xbtNull, tmp, nullptr, 1 ) );
-
-		if ( path && path[0] != '\0' ) {
-			tmp = std::string( path ) + "/uuid";
-
-			char *tmpUuid = static_cast<char *>( xs.readTimeout( XS::xbtNull, tmp, nullptr, 1 ) );
-
-			if ( tmpUuid && uuid == tmpUuid ) {
-				domainId = std::stoi( domain );
-				free( tmpUuid );
-				free( path );
-				break;
-			}
-
-			free( tmpUuid );
+		if ( uuid == tmpUuid ) {
+			domainId = std::stoi( domain );
+			break;
 		}
-
-		free( path );
 	}
 
 	return domainId;
+}
+
+std::string XenDriver::queryUuid( XS &xs, const std::string &domain )
+{
+	constexpr size_t PREFIX_SIZE = 4;
+	unsigned int     size        = 0;
+	std::string      key         = "/local/domain/" + domain + "/vm";
+	std::string      ret;
+
+	CUniquePtr<char> path( xs.readTimeout( XS::xbtNull, key, &size, 1 ) );
+
+	if ( path && size > PREFIX_SIZE )
+		ret = path.get() + PREFIX_SIZE; // Get rid of "/vm/"
+
+	return ret;
 }
 
 MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t length, uint32_t /*flags*/,
@@ -535,8 +512,8 @@ MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t le
 #endif
 
 		if ( !mapped ) {
-			LOG_ERROR( logHelper_, "address: 0x", std::setfill( '0' ), std::setw( 16 ), std::hex, address,
-			           ", length: ", length );
+			logger << ERROR << "address: 0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex
+			       << address << ", length: " << length << std::flush;
 			return MAP_FAILED_GENERIC;
 		}
 
@@ -562,63 +539,6 @@ bool XenDriver::unmapPhysMem( void *hostPtr )
 	return true;
 }
 
-MapReturnCode XenDriver::mapVirtMemToHost( unsigned long long address, size_t length, uint32_t /* flags */,
-                                           unsigned short vcpu, void *&pointer )
-{
-	// one-page limit
-	if ( ( address & XC::pageMask ) != ( ( address + length - 1 ) & XC::pageMask ) )
-		return MAP_INVALID_PARAMETER;
-
-	unsigned long gfn;
-	pointer = nullptr;
-
-	try {
-		gfn = xc_.translateForeignAddress( domain_, vcpu, address );
-
-		if ( gfn == 0 ) {
-			if ( errno && errno != EADDRNOTAVAIL )
-				LOG_ERROR( logHelper_, "xc_translate_foreign_address(0x", std::setfill( '0' ),
-				           std::setw( 16 ), std::hex, address, ") (vcpu = ", vcpu, ") failed: ",
-				           strerror( errno ) );
-
-			return MAP_FAILED_GENERIC;
-		}
-
-		void *mapped = nullptr;
-
-#ifdef DISABLE_PAGE_CACHE
-		mapped = mapGuestPageImpl( gfn );
-
-		if ( mapped && !check_page( mapped ) ) {
-			munmap( mapped, XC::pageSize );
-			return MAP_PAGE_NOT_PRESENT;
-		}
-#else
-		MapReturnCode mrc = pageCache_.update( gfn, mapped );
-
-		if ( mrc != MAP_SUCCESS )
-			return mrc;
-#endif
-
-		if ( !mapped ) {
-			LOG_ERROR( logHelper_, "address: 0x", std::setfill( '0' ), std::setw( 16 ), std::hex, address,
-			           ", length: ", length );
-			return MAP_FAILED_GENERIC;
-		}
-
-		pointer = static_cast<char *>( mapped ) + ( address & ~XC::pageMask );
-	} catch ( ... ) {
-		return MAP_FAILED_GENERIC;
-	}
-
-	return MAP_SUCCESS;
-}
-
-bool XenDriver::unmapVirtMem( void *hostPtr )
-{
-	return unmapPhysMem( hostPtr );
-}
-
 bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_t virtualAddress, uint32_t errorCode )
 {
 	// It is assumed that the guest is in user-mode and in the proper
@@ -627,7 +547,7 @@ bool XenDriver::requestPageFault( int vcpu, uint64_t /* addressSpace */, uint64_
 	// conditions hold HV-side.
 	if ( xc_.hvmInjectTrap( domain_, vcpu, TRAP_page_fault, X86_EVENTTYPE_HW_EXCEPTION, errorCode, 0,
 	                        virtualAddress /*, addressSpace */ ) != 0 ) {
-		LOG_ERROR( logHelper_, "xc_hvm_inject_trap() failed: ", strerror( errno ) );
+		logger << ERROR << "xc_hvm_inject_trap() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
@@ -642,7 +562,7 @@ bool XenDriver::setRepOptimizations( bool enable )
 		return false;
 
 	if ( xc_.monitorEmulateEachRep( domain_, enable ) != 0 ) {
-		LOG_ERROR( logHelper_, "xc_monitor_emulate_each_rep() failed: ", strerror( errno ) );
+		logger << ERROR << "xc_monitor_emulate_each_rep() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
@@ -652,7 +572,7 @@ bool XenDriver::setRepOptimizations( bool enable )
 bool XenDriver::pause()
 {
 	if ( xc_.domainPause( domain_ ) != 0 ) {
-		LOG_ERROR( logHelper_, "xc_domain_pause() failed: ", strerror( errno ) );
+		logger << ERROR << "xc_domain_pause() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
@@ -662,7 +582,7 @@ bool XenDriver::pause()
 bool XenDriver::unpause()
 {
 	if ( xc_.domainUnpause( domain_ ) != 0 ) {
-		LOG_ERROR( logHelper_, "xc_domain_unpause() failed: ", strerror( errno ) );
+		logger << ERROR << "xc_domain_unpause() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
@@ -697,8 +617,8 @@ bool XenDriver::getPAT( unsigned short vcpu, uint64_t &pat ) const
 		return true;
 	}
 
-	StatsCollector::instance().incStat( "partialContext" );
-	StatsCollector::instance().incStat( "partialMtrr" );
+	StatsCounter ctxCounter( "partialContext" );
+	StatsCounter mtrrCounter( "partialMtrr" );
 
 	struct hvm_hw_mtrr hwMtrr;
 
@@ -706,8 +626,8 @@ bool XenDriver::getPAT( unsigned short vcpu, uint64_t &pat ) const
 		EventHandler *h          = handler();
 		int           savedErrno = errno;
 
-		LOG_ERROR( logHelper_, "xc_domain_hvm_getcontext_partial() (vcpu = ", vcpu, ") failed: ",
-		           strerror( errno ) );
+		logger << ERROR << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu
+		       << ") failed: " << strerror( errno ) << std::flush;
 
 		if ( savedErrno == EINVAL && h )
 			h->handleFatalError();
@@ -742,7 +662,7 @@ bool XenDriver::getXSAVEInfo( unsigned short vcpu, struct hvm_hw_cpu_xsave &xsav
 	ret = xc_.domainHvmGetContext( domain_, &buf[0], len );
 
 	if ( ret < 0 ) {
-		LOG_ERROR( logHelper_, "xc_domain_hvm_getcontext() failed: ", strerror( errno ) );
+		logger << ERROR << "xc_domain_hvm_getcontext() failed: " << strerror( errno ) << std::flush;
 		xc_.domainUnpause( domain_ );
 		return false;
 	}
@@ -794,7 +714,7 @@ bool XenDriver::getXSAVESize( unsigned short vcpu, size_t &size )
 	uint32_t     localSize = 512 + 64;
 
 	if ( !getXCR0( vcpu, featureMask ) ) {
-		LOG_ERROR( logHelper_, "could not query XCR0, can't get the XSAVE size" );
+		logger << ERROR << "could not query XCR0, can't get the XSAVE size" << std::flush;
 		return false;
 	}
 
@@ -834,9 +754,112 @@ bool XenDriver::getXSAVEArea( unsigned short vcpu, void *buffer, size_t bufSize 
 		return true;
 	}
 
-	LOG_ERROR( logHelper_, "could not query XSAVE area" );
+	logger << ERROR << "could not query XSAVE area" << std::flush;
 
 	return false;
+}
+
+bool XenDriver::maxGPFN( unsigned long long &gfn )
+{
+	xen_pfn_t xpfn = 0;
+
+	if ( xc_.domainMaximumGpfn( domain_, &xpfn ) < 0 )
+		return false;
+
+	gfn = xpfn;
+
+	return true;
+}
+
+bool XenDriver::getEPTPageConvertible( unsigned short index, unsigned long long address, bool &convertible )
+{
+	if ( !altp2mState_ )
+		return false;
+
+	int rc = altp2mState_.getSuppressVE( index, gpa_to_gfn( address ), convertible );
+
+	if ( rc < 0 ) {
+		logger << ERROR << "Failed to read the convertible bit: " << strerror( -rc ) << std::flush;
+		return false;
+	}
+
+	return true;
+}
+
+bool XenDriver::setEPTPageConvertible( unsigned short index, unsigned long long address, bool convertible )
+{
+	if ( !altp2mState_ )
+		return false;
+
+	int rc = altp2mState_.setSuppressVE( index, gpa_to_gfn( address ), convertible );
+
+	if ( rc < 0 ) {
+		logger << ERROR << "Failed to write the convertible bit: " << strerror( -rc ) << std::flush;
+		return false;
+	}
+
+	return true;
+}
+
+bool XenDriver::createEPT( unsigned short &index )
+{
+	if ( !altp2mState_ )
+		return false;
+
+	uint16_t viewId = 0;
+
+	if ( altp2mState_.createView( XENMEM_access_rwx, viewId ) < 0 )
+		return false;
+
+	index = viewId;
+
+	return true;
+}
+
+bool XenDriver::destroyEPT( unsigned short index )
+{
+	if ( !altp2mState_ )
+		return false;
+
+	return altp2mState_.destroyView( index ) >= 0;
+}
+
+bool XenDriver::switchEPT( unsigned short index )
+{
+	if ( !altp2mState_ )
+		return false;
+
+	return altp2mState_.switchToView( index ) >= 0;
+}
+
+bool XenDriver::setVEInfoPage( unsigned short vcpu, unsigned long long gpa )
+{
+	if ( !altp2mState_ )
+		return false;
+
+	int rc = altp2mState_.setVEInfoPage( vcpu, gpa_to_gfn( gpa ) );
+
+	if ( rc < 0 ) {
+		logger << ERROR << "Failed to set the VE page: " << strerror( -rc ) << std::flush;
+		return false;
+	}
+
+	return true;
+}
+
+bool XenDriver::disableVE( unsigned short vcpu )
+{
+	if ( !altp2mState_ )
+		return false;
+
+	int rc = altp2mState_.disableVE( vcpu );
+
+	if ( rc < 0 ) {
+		logger << ERROR << "Failed to disable VE: " << strerror( -rc ) << std::flush;
+		return false;
+	}
+
+	return true;
 }
 
 void XenDriver::enableCache( unsigned short vcpu )
@@ -876,39 +899,36 @@ uint32_t XenDriver::startTime()
 	unsigned int size = 0;
 	std::string  key  = "/local/domain/" + std::to_string( domain_ ) + "/vm";
 
-	char *path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, key, &size, 1 ) );
+	CUniquePtr<char> path( xs_.readTimeout( XS::xbtNull, key, &size, 1 ) );
 
-	if ( path && path[0] != '\0' ) {
-		std::string path1 = std::string( path ) + "/start_time";
-		std::string path2 = std::string( path ) + "/domains/" + std::to_string( domain_ ) + "/create-time";
+	if ( path && *path.get() != '\0' ) {
+		std::string path1 = std::string( path.get() ) + "/start_time";
+		std::string path2 =
+		        std::string( path.get() ) + "/domains/" + std::to_string( domain_ ) + "/create-time";
 
-		free( path );
 		size = 0;
 
-		path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, path1, &size, 1 ) );
+		path.reset( static_cast<char *>( xs_.readTimeout( XS::xbtNull, path1, &size, 1 ) ) );
 
-		if ( path && path[0] != '\0' )
-			startTime_ = strtoul( path, nullptr, 10 );
+		if ( path && *path.get() != '\0' )
+			startTime_ = strtoul( path.get(), nullptr, 10 );
 
-		free( path );
-		path = nullptr;
+		path.reset();
 		size = 0;
 
-		if ( startTime_ == ( uint32_t )-1 ) // XenServer
-			path = static_cast<char *>( xs_.readTimeout( XS::xbtNull, path2, &size, 1 ) );
+		if ( startTime_ == static_cast<uint32_t>( -1 ) ) // XenServer
+			path.reset( static_cast<char *>( xs_.readTimeout( XS::xbtNull, path2, &size, 1 ) ) );
 
-		if ( path && path[0] != '\0' )
-			startTime_ = strtoul( path, nullptr, 10 );
+		if ( path && *path.get() != '\0' )
+			startTime_ = strtoul( path.get(), nullptr, 10 );
 	}
-
-	free( path );
 
 	return startTime_;
 }
 
 void *XenDriver::mapGuestPageImpl( unsigned long long gfn )
 {
-	StatsCollector::instance().incStat( "xcMapPage" );
+	StatsCounter counter( "xcMapPage" );
 
 	return xc_.mapForeignRange( domain_, XC::pageSize, PROT_READ | PROT_WRITE, gfn );
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,6 @@ namespace bdvmi {
 class DomainWatcher;
 class Driver;
 class EventManager;
-class LogHelper;
 
 class BackendFactory {
 
@@ -33,12 +32,12 @@ public:
 	enum BackendType { BACKEND_XEN, BACKEND_KVM };
 
 public:
-	BackendFactory( BackendType type, LogHelper *logHelper = nullptr );
+	BackendFactory( BackendType type );
 
 public:
 	std::unique_ptr<DomainWatcher> domainWatcher( sig_atomic_t &sigStop );
 
-	std::unique_ptr<Driver> driver( const std::string &domain, bool watchableOnly = true );
+	std::unique_ptr<Driver> driver( const std::string &domain, bool altp2m, bool watchableOnly = true );
 
 	std::unique_ptr<EventManager> eventManager( Driver &driver, sig_atomic_t &sigStop );
 
@@ -48,7 +47,6 @@ public:
 
 private:
 	BackendType type_;
-	LogHelper * logHelper_;
 };
 
 } // namespace bdvmi

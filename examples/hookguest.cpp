@@ -19,7 +19,6 @@
 #include <bdvmi/driver.h>
 #include <bdvmi/eventhandler.h>
 #include <bdvmi/eventmanager.h>
-#include <bdvmi/loghelper.h>
 #include <iostream>
 #include <memory>
 #include <signal.h>
@@ -38,6 +37,7 @@ void stop_handler( int /* signo */ )
 
 }
 
+/*
 class DemoLogHelper : public bdvmi::LogHelper {
 
 public:
@@ -71,6 +71,7 @@ public:
 private:
 	string prefix_;
 };
+*/
 
 class DemoEventHandler : public bdvmi::EventHandler {
 
@@ -92,8 +93,8 @@ public:
 	// Callback for page faults
 	void handlePageFault( unsigned short vcpu, const bdvmi::Registers & /* regs */,
 	                      uint64_t /* physAddress */, uint64_t /* virtAddress */, bool /* read */,
-	                      bool /* write */, bool /* execute */, bdvmi::HVAction & /* action */,
-	                      uint8_t * /* data */, uint32_t & /* size */,
+	                      bool /* write */, bool /* execute */, bool /* inGpt */,
+			      bdvmi::HVAction & /* action */, uint8_t * /* data */, uint32_t & /* size */,
 	                      unsigned short & /* instructionLength */ ) override
 	{
 		cout << "Page fault event on VCPU: " << vcpu << endl;
@@ -122,6 +123,13 @@ public:
 	                      uint64_t /* errorCode */, uint64_t /* cr2 */ ) override
 	{
 		cout << "Interrupt event on VCPU " << vcpu << endl;
+	}
+
+        void handleDescriptorAccess( unsigned short vcpu, const bdvmi::Registers & /* regs */,
+                                     unsigned int /* flags */, unsigned short & /* instructionLength */,
+                                     bdvmi::HVAction & /* action */ ) override
+	{
+		cout << "Descriptor access on VCPU " << vcpu << endl;
 	}
 
 	void handleSessionOver( bool /* domainStillRunning */ ) override
@@ -176,7 +184,7 @@ public:
 private:
 	void hookDomain( const string &uuid )
 	{
-		auto pd = bf_.driver( uuid );
+		auto pd = bf_.driver( uuid, false );
 		auto em = bf_.eventManager( *pd, stop );
 
 		DemoEventHandler deh;
@@ -200,8 +208,7 @@ int main()
 		signal( SIGHUP, stop_handler );
 		signal( SIGTERM, stop_handler );
 
-		DemoLogHelper logHelper;
-		bdvmi::BackendFactory bf( bdvmi::BackendFactory::BACKEND_XEN, &logHelper );
+		bdvmi::BackendFactory bf( bdvmi::BackendFactory::BACKEND_XEN );
 		DemoDomainHandler ddh( bf );
 
 		auto pdw = bf.domainWatcher( stop );

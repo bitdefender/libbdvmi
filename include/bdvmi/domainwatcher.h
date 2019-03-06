@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2018 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -52,8 +52,18 @@ public:
 	// Return true if the guest running the application can do introspection
 	virtual bool accessGranted() = 0;
 
+	// Called before a dedicated child process is fork()ed to handle the domain
+	virtual void forkingHandler( const std::string & /* uuid */ )
+	{
+	}
+
 	// Called if (and when) a dedicated child process has fork()ed to handle the domain
 	virtual void forkedHandler( const std::string & /* uuid */, bool /* parent */ = true )
+	{
+	}
+
+	// Called when a dedicated child process has ended
+	virtual void diedHandler( const std::string & /* uuid */ )
 	{
 	}
 
