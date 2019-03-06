@@ -19,6 +19,7 @@
 #include <bdvmi/driver.h>
 #include <bdvmi/eventhandler.h>
 #include <bdvmi/eventmanager.h>
+#include <bdvmi/logger.h>
 #include <iostream>
 #include <memory>
 #include <signal.h>
@@ -34,51 +35,14 @@ void stop_handler( int /* signo */ )
 {
 	stop = 1;
 }
-
 }
-
-/*
-class DemoLogHelper : public bdvmi::LogHelper {
-
-public:
-	DemoLogHelper( const string &domainName = "" )
-	{
-		if ( !domainName.empty() )
-			prefix_ = "[" + domainName + "] ";
-	}
-
-public:
-	void error( const string &message ) override
-	{
-		cerr << prefix_ << "[ERROR] " << message << endl;
-	}
-
-	void warning( const string &message ) override
-	{
-		cout << prefix_ << "[WARNING] " << message << endl;
-	}
-
-	void info( const string &message ) override
-	{
-		cout << prefix_ << "[INFO] " << message << endl;
-	}
-
-	void debug( const string &message ) override
-	{
-		cout << prefix_ << "[DEBUG] " << message << endl;
-	}
-
-private:
-	string prefix_;
-};
-*/
 
 class DemoEventHandler : public bdvmi::EventHandler {
 
 public:
 	// Callback for CR write events
 	void handleCR( unsigned short /* vcpu */, unsigned short crNumber, const bdvmi::Registers & /* regs */,
-	               uint64_t /* oldValue */, uint64_t newValue, bdvmi::HVAction & /* hvAction */ ) override
+	               uint64_t /* oldValue */, uint64_t         newValue, bdvmi::HVAction & /* hvAction */ ) override
 	{
 		cout << "CR" << crNumber << " event, newValue: 0x" << hex << newValue << endl;
 	}
@@ -91,11 +55,10 @@ public:
 	}
 
 	// Callback for page faults
-	void handlePageFault( unsigned short vcpu, const bdvmi::Registers & /* regs */,
-	                      uint64_t /* physAddress */, uint64_t /* virtAddress */, bool /* read */,
-	                      bool /* write */, bool /* execute */, bool /* inGpt */,
-			      bdvmi::HVAction & /* action */, uint8_t * /* data */, uint32_t & /* size */,
-	                      unsigned short & /* instructionLength */ ) override
+	void handlePageFault( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint64_t /* physAddress */,
+	                      uint64_t /* virtAddress */, bool /* read */, bool /* write */, bool /* execute */,
+	                      bool /* inGpt */, bdvmi::HVAction & /* action */, uint8_t * /* data */,
+	                      uint32_t & /* size */, unsigned short & /* instructionLength */ ) override
 	{
 		cout << "Page fault event on VCPU: " << vcpu << endl;
 	}
@@ -125,9 +88,8 @@ public:
 		cout << "Interrupt event on VCPU " << vcpu << endl;
 	}
 
-        void handleDescriptorAccess( unsigned short vcpu, const bdvmi::Registers & /* regs */,
-                                     unsigned int /* flags */, unsigned short & /* instructionLength */,
-                                     bdvmi::HVAction & /* action */ ) override
+	void handleDescriptorAccess( unsigned short vcpu, const bdvmi::Registers & /* regs */, unsigned int /* flags */,
+	                             unsigned short & /* instructionLength */, bdvmi::HVAction & /* action */ ) override
 	{
 		cout << "Descriptor access on VCPU " << vcpu << endl;
 	}
@@ -165,8 +127,7 @@ public:
 	// Found a domain
 	void handleDomainFound( const string &uuid, const string &name ) override
 	{
-		cout << "A new domain started running: " << name
-			<< ", UUID: " << uuid << endl;
+		cout << "A new domain started running: " << name << ", UUID: " << uuid << endl;
 		hookDomain( uuid );
 	}
 
@@ -208,8 +169,13 @@ int main()
 		signal( SIGHUP, stop_handler );
 		signal( SIGTERM, stop_handler );
 
+		bdvmi::logger.info( []( const std::string &s ) { cout << "[INFO] " << s << endl; } );
+		bdvmi::logger.debug( []( const std::string &s ) { cout << "[DEBUG] " << s << endl; } );
+		bdvmi::logger.warning( []( const std::string &s ) { cout << "[WARNING] " << s << endl; } );
+		bdvmi::logger.error( []( const std::string &s ) { cerr << "[ERROR] " << s << "\n"; } );
+
 		bdvmi::BackendFactory bf( bdvmi::BackendFactory::BACKEND_XEN );
-		DemoDomainHandler ddh( bf );
+		DemoDomainHandler     ddh( bf );
 
 		auto pdw = bf.domainWatcher( stop );
 
@@ -221,7 +187,6 @@ int main()
 		pdw->waitForDomains();
 
 		cout << "\nDone." << endl;
-
 	} catch ( const exception &e ) {
 		cerr << "Error: caught exception: " << e.what() << endl;
 		return -1;
