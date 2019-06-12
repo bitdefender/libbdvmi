@@ -1,9 +1,3 @@
 #!/bin/sh
 
-mkdir -p m4
-
-aclocal \
-&& automake --gnu --add-missing \
-&& autoconf \
-&& autoreconf -fi -I m4
-
+autoreconf --install
