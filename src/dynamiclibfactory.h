@@ -24,7 +24,7 @@ namespace bdvmi {
 
 class DynamicLibFactory {
 public:
-	DynamicLibFactory( const std::string &libPath );
+	explicit DynamicLibFactory( const std::string &libPath );
 	~DynamicLibFactory();
 
 	DynamicLibFactory( const DynamicLibFactory & ) = delete;

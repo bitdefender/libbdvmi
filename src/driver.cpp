@@ -32,9 +32,8 @@ bool Driver::setPageProtection( unsigned long long guestAddress, bool read, bool
 	 *
 	 */
 	if ( write && !read ) {
-		logger << ERROR << "Attempted to set GPA " << std::hex << std::showbase << guestAddress
-			<< " " << ( read ? "r" : "-" ) << ( write ? "w" : "-" ) << ( execute ? "x" : "-" )
-			<< std::flush;
+		logger << ERROR << "Attempted to set GPA " << std::hex << std::showbase << guestAddress << " "
+		       << ( read ? "r" : "-" ) << ( write ? "w" : "-" ) << ( execute ? "x" : "-" ) << std::flush;
 		return false;
 	}
 
@@ -46,6 +45,18 @@ bool Driver::setPageProtection( unsigned long long guestAddress, bool read, bool
 	memAccessCache_[view][gfn]        = memaccess;
 	delayedMemAccessWrite_[view][gfn] = memaccess;
 
+	return true;
+}
+
+bool Driver::setEPTPageConvertible( unsigned short view, unsigned long long guestAddress, bool convertible )
+{
+	uint64_t gfn = gpa_to_gfn( guestAddress );
+
+	std::lock_guard<std::mutex> guard( convertibleCacheMutex_ );
+
+	delayedConvertibleWrite_[view][gfn] = convertible;
+
+	// TODO: if we can't think of any input validation criteria, this function should become void
 	return true;
 }
 
@@ -85,13 +96,25 @@ bool Driver::getPageProtection( unsigned long long guestAddress, bool &read, boo
 
 void Driver::flushPageProtections()
 {
-	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
+	{
+		std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
 
-	for ( auto &&item : delayedMemAccessWrite_ ) {
+		for ( auto &&item : delayedMemAccessWrite_ ) {
+			if ( item.second.empty() )
+				continue;
+
+			setPageProtectionImpl( item.second, item.first );
+			item.second.clear();
+		}
+	}
+
+	std::lock_guard<std::mutex> guard( convertibleCacheMutex_ );
+
+	for ( auto &&item : delayedConvertibleWrite_ ) {
 		if ( item.second.empty() )
 			continue;
 
-		setPageProtectionImpl( item.second, item.first );
+		setPageConvertibleImpl( item.second, item.first );
 		item.second.clear();
 	}
 }

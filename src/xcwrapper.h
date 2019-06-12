@@ -65,11 +65,12 @@ using xc_evtchn = struct xenevtchn_handle;
 namespace bdvmi {
 
 struct XenDomainInfo {
-	uint32_t     domid{ 0 };
-	bool         hvm{ false };
-	bool         dying{ false };
-	bool         shutdown{ false };
-	unsigned int max_vcpu_id{ 0 };
+	uint32_t      domid{ 0 };
+	bool          hvm{ false };
+	bool          dying{ false };
+	bool          shutdown{ false };
+	unsigned int  max_vcpu_id{ 0 };
+	unsigned long max_memkb{ 0 };
 };
 
 struct XenDomctlInfo {
@@ -104,7 +105,7 @@ struct Registers;
 // xc_interface *, they become _1, _2, _3, and so on here.
 //
 
-#define DECLARE_BDVMI_FUNCTION( NAME, TYPE )                                                                              \
+#define DECLARE_BDVMI_FUNCTION( NAME, TYPE )                                                                           \
 	using bdvmi_##NAME##_fn_t            = TYPE;                                                                   \
 	using xc_##NAME##_fn_t               = PrependArg<xc_interface *, bdvmi_##NAME##_fn_t>::type;                  \
 	constexpr char xc_##NAME##_fn_name[] = "xc_" #NAME;
@@ -132,11 +133,11 @@ DECLARE_BDVMI_FUNCTION( altp2m_set_suppress_ve, int( uint32_t, uint16_t, xen_pfn
 DECLARE_BDVMI_FUNCTION( altp2m_get_suppress_ve, int( uint32_t, uint16_t, xen_pfn_t, bool * ) )
 DECLARE_BDVMI_FUNCTION( altp2m_set_vcpu_enable_notify, int( uint32_t, uint32_t, xen_pfn_t ) )
 DECLARE_BDVMI_FUNCTION( altp2m_set_vcpu_disable_notify, int( uint32_t, uint32_t ) )
-DECLARE_BDVMI_FUNCTION( map_foreign_range, void *( uint32_t, int, int, unsigned long ) )
+DECLARE_BDVMI_FUNCTION( map_foreign_range, void *( uint32_t, int, int, unsigned long ))
 DECLARE_BDVMI_FUNCTION( get_mem_access, int( uint32_t, uint64_t, xenmem_access_t * ) )
 DECLARE_BDVMI_FUNCTION( hvm_inject_trap, int( uint32_t, int, uint8_t, uint8_t, uint32_t, uint8_t, uint64_t ) )
 DECLARE_BDVMI_FUNCTION( vcpu_set_registers, int( uint32_t, unsigned short, const Registers &, bool ) )
-DECLARE_BDVMI_FUNCTION( monitor_enable, void *( uint32_t, uint32_t * ) )
+DECLARE_BDVMI_FUNCTION( monitor_enable, void *( uint32_t, uint32_t * ))
 DECLARE_BDVMI_FUNCTION( monitor_disable, int( uint32_t ) )
 DECLARE_BDVMI_FUNCTION( monitor_singlestep, int( uint32_t, bool ) )
 DECLARE_BDVMI_FUNCTION( monitor_software_breakpoint, int( uint32_t, bool ) )
@@ -145,6 +146,7 @@ DECLARE_BDVMI_FUNCTION( monitor_mov_to_msr, int( uint32_t, uint32_t, bool, bool 
 DECLARE_BDVMI_FUNCTION( monitor_guest_request, int( uint32_t, bool, bool, bool ) )
 DECLARE_BDVMI_FUNCTION( monitor_write_ctrlreg, int( uint32_t, uint16_t, bool, bool, uint64_t, bool ) )
 DECLARE_BDVMI_FUNCTION( monitor_descriptor_access, int( uint32_t /* domain */, bool /* enable */ ) )
+DECLARE_BDVMI_FUNCTION( vm_event_get_version, int() )
 
 using bdvmi_evtchn_open_fn_t             = xc_evtchn *( void );
 using bdvmi_evtchn_close_fn_t            = int( xc_evtchn * );
@@ -176,9 +178,7 @@ public:
 	const std::string caps;
 	const std::string uuid;
 
-	/*
-	 * Domain Management functions
-	 */
+	// Domain Management functions
 	NCFunction<bdvmi_domain_pause_fn_t>                  domainPause;
 	NCFunction<bdvmi_domain_unpause_fn_t>                domainUnpause;
 	NCFunction<bdvmi_domain_shutdown_fn_t>               domainShutdown;
@@ -192,9 +192,7 @@ public:
 	NCFunction<bdvmi_domain_hvm_getcontext_partial_fn_t> domainHvmGetContextPartial;
 	NCFunction<bdvmi_set_mem_access_fn_t>                setMemAccess;
 
-	/*
-	 * ALTP2M support
-	 */
+	// ALTP2M support
 	NCFunction<bdvmi_altp2m_get_mem_access_fn_t>          altp2mGetMemAccess;
 	NCFunction<bdvmi_altp2m_set_mem_access_fn_t>          altp2mSetMemAccess;
 	NCFunction<bdvmi_altp2m_set_domain_state_fn_t>        altp2mSetDomainState;
@@ -206,14 +204,12 @@ public:
 	NCFunction<bdvmi_altp2m_set_vcpu_enable_notify_fn_t>  altp2mSetVcpuEnableNotify;
 	NCFunction<bdvmi_altp2m_set_vcpu_disable_notify_fn_t> altp2mSetVcpuDisableNotify;
 
-	NCFunction<bdvmi_map_foreign_range_fn_t>         mapForeignRange;
-	NCFunction<bdvmi_get_mem_access_fn_t>            getMemAccess;
-	NCFunction<bdvmi_hvm_inject_trap_fn_t>           hvmInjectTrap;
-	NCFunction<bdvmi_vcpu_set_registers_fn_t>        vcpuSetRegisters;
+	NCFunction<bdvmi_map_foreign_range_fn_t>  mapForeignRange;
+	NCFunction<bdvmi_get_mem_access_fn_t>     getMemAccess;
+	NCFunction<bdvmi_hvm_inject_trap_fn_t>    hvmInjectTrap;
+	NCFunction<bdvmi_vcpu_set_registers_fn_t> vcpuSetRegisters;
 
-	/*
-	 * Monitor functions
-	 */
+	// Monitor functions
 	NCFunction<bdvmi_monitor_enable_fn_t>              monitorEnable;
 	NCFunction<bdvmi_monitor_disable_fn_t>             monitorDisable;
 	NCFunction<bdvmi_monitor_singlestep_fn_t>          monitorSinglestep;
@@ -224,10 +220,11 @@ public:
 	NCFunction<bdvmi_monitor_write_ctrlreg_fn_t>       monitorWriteCtrlreg;
 	NCFunction<bdvmi_monitor_descriptor_access_fn_t>   monitorDescriptorAccess;
 
-	/*
-	 * XenServer-specific functions
-	 */
+	// XenServer-specific functions
 	NCFunction<bdvmi_domain_set_cores_per_socket_fn_t> domainSetCoresPerSocket;
+
+	// General query functions
+	NCFunction<bdvmi_vm_event_get_version_fn_t> vmEventGetVersion;
 
 	/*
 	 * Event Channel functions

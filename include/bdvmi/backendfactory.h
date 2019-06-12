@@ -32,7 +32,7 @@ public:
 	enum BackendType { BACKEND_XEN, BACKEND_KVM };
 
 public:
-	BackendFactory( BackendType type );
+	explicit BackendFactory( BackendType type );
 
 public:
 	std::unique_ptr<DomainWatcher> domainWatcher( sig_atomic_t &sigStop );

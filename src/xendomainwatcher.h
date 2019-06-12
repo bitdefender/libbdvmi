@@ -19,14 +19,14 @@
 #include "bdvmi/domainwatcher.h"
 #include "xcwrapper.h"
 #include "xswrapper.h"
-#include <map>
+#include <unordered_map>
 
 namespace bdvmi {
 
 class XenDomainWatcher : public DomainWatcher {
 
 public:
-	XenDomainWatcher( sig_atomic_t &sigStop );
+	explicit XenDomainWatcher( sig_atomic_t &sigStop );
 
 	virtual ~XenDomainWatcher();
 
@@ -69,7 +69,7 @@ private:
 	const std::string releaseToken_{ "release" };
 	const std::string controlToken_{ "control" };
 	const std::string postResumeToken_{ "post-resume" };
-	std::map<domid_t, std::string> domIds_;
+	std::unordered_map<domid_t, std::string> domIds_;
 	bool                    firstControlCommand_{ true };
 	bool                    keyCreated_{ false };
 	std::set<domid_t>       preResumeDomains_;

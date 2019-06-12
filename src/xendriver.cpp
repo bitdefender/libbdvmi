@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
+#define BDVMI_DISABLE_STATS
+
 #include "bdvmi/eventhandler.h"
 #include <bdvmi/logger.h>
 #include "bdvmi/statscollector.h"
@@ -39,6 +41,10 @@
 #define CS_AR_BYTES_L ( 1 << 9 )
 #define CS_AR_BYTES_D ( 1 << 10 )
 
+#define MTRR_PHYSMASK_VALID_BIT 11
+#define MTRR_PHYSMASK_SHIFT 12
+#define MTRR_PHYSBASE_TYPE_MASK 0xff
+
 #define TRAP_page_fault 14
 #define X86_EVENTTYPE_HW_EXCEPTION 3 /* hardware exception */
 
@@ -60,7 +66,7 @@ static bool check_page( void *addr )
 using namespace std::placeholders;
 
 XenDriver::XenDriver( domid_t domain, bool altp2m, bool hvmOnly )
-    : domain_{ domain }, pageCache_{ *this }, altp2mState_{ xc_, domain, altp2m }
+    : domain_{ domain }, pageCache_{ this }, altp2mState_{ xc_, domain, altp2m }
 {
 	getMemAccess_ = [this]( unsigned long long gpa, xenmem_access_t *access, unsigned short ) {
 		return xc_.getMemAccess( domain_, gpa, access );
@@ -87,6 +93,15 @@ XenDriver::XenDriver( domid_t domain, bool altp2m, bool hvmOnly )
 XenDriver::XenDriver( const std::string &uuid, bool altp2m, bool hvmOnly )
     : XenDriver{ XenDriver::getDomainId( uuid ), altp2m, hvmOnly }
 {
+}
+
+XenDriver::~XenDriver()
+{
+	// We need this here because pageCache will be destroyed _after_ XenDriver, but
+	// PageCache::reset() still makes use of its driver_ pointer. So reset() here instead,
+	// then clear the pointer.
+	pageCache_.reset();
+	pageCache_.driver( nullptr );
 }
 
 #define hvm_long_mode_enabled( regs ) ( regs.msr_efer & EFER_LMA )
@@ -225,7 +240,7 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 	}
 
 	StatsCounter ctxCounter( "partialContext" );
-	StatsCounter partialCounter( "partialCpu" );
+	StatsCounter cpuCounter( "partialCpu" );
 
 	struct hvm_hw_cpu hwCpu;
 
@@ -445,6 +460,16 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 		if ( altp2mState_.switchToView( altp2mViewId_ ) < 0 )
 			throw std::runtime_error( "[ALTP2M] could not switch to altp2m view" );
 	}
+
+	physAddr_ = 36;
+
+	if ( cpuid_eax( 0x80000000 ) >= 0x80000008 )
+		physAddr_ = ( uint8_t )cpuid_eax( 0x80000008 );
+
+	maxGPFN_ = info.max_memkb >> ( XC::pageShift - 10 );
+
+	logger << DEBUG << "max_memkb: " << info.max_memkb << ", maxGPFN: " << std::hex << std::showbase
+		<< maxGPFN_ << std::dec << std::flush;
 }
 
 domid_t XenDriver::getDomainId( const std::string &uuid )
@@ -581,6 +606,8 @@ bool XenDriver::pause()
 
 bool XenDriver::unpause()
 {
+	flushPageProtections();
+
 	if ( xc_.domainUnpause( domain_ ) != 0 ) {
 		logger << ERROR << "xc_domain_unpause() failed: " << strerror( errno ) << std::flush;
 		return false;
@@ -759,14 +786,190 @@ bool XenDriver::getXSAVEArea( unsigned short vcpu, void *buffer, size_t bufSize 
 	return false;
 }
 
+void XenDriver::getMtrrRange( uint64_t base_msr, uint64_t mask_msr, uint64_t &base, uint64_t &end ) const
+{
+	uint32_t mask_lo = ( uint32_t )mask_msr;
+	uint32_t mask_hi = ( uint32_t )( mask_msr >> 32 );
+	uint32_t base_lo = ( uint32_t )base_msr;
+	uint32_t base_hi = ( uint32_t )( base_msr >> 32 );
+
+	if ( ( mask_lo & 0x800 ) == 0 ) {
+		/* Invalid (i.e. free) range */
+		base = 0;
+		end  = 0;
+		return;
+	}
+
+	uint32_t size_or_mask = ~( ( 1 << ( physAddr_ - XC::pageShift ) ) - 1 );
+
+	/* Work out the shifted address mask. */
+	mask_lo = ( size_or_mask | ( mask_hi << ( 32 - XC::pageShift ) ) | ( mask_lo >> XC::pageShift ) );
+
+	/* This works correctly if size is a power of two (a contiguous range). */
+	uint32_t size = -mask_lo;
+	base          = base_hi << ( 32 - XC::pageShift ) | base_lo >> XC::pageShift;
+	end           = base + size - 1;
+}
+
+bool XenDriver::isVarMtrrOverlapped( const struct hvm_hw_mtrr &hwMtrr ) const
+{
+	uint64_t phys_base, phys_mask, base_pre, end_pre, base, end;
+	uint8_t  num_var_ranges = ( uint8_t )hwMtrr.msr_mtrr_cap;
+
+	for ( int32_t i = 0; i < num_var_ranges; ++i ) {
+
+		uint64_t phys_base_pre = ( ( uint64_t * )hwMtrr.msr_mtrr_var )[i * 2];
+		uint64_t phys_mask_pre = ( ( uint64_t * )hwMtrr.msr_mtrr_var )[i * 2 + 1];
+
+		getMtrrRange( phys_base_pre, phys_mask_pre, base_pre, end_pre );
+
+		for ( int32_t seg = i + 1; seg < num_var_ranges; ++seg ) {
+
+			phys_base = ( ( uint64_t * )hwMtrr.msr_mtrr_var )[seg * 2];
+			phys_mask = ( ( uint64_t * )hwMtrr.msr_mtrr_var )[seg * 2 + 1];
+
+			getMtrrRange( phys_base, phys_mask, base, end );
+
+			if ( ( ( base_pre != end_pre ) && ( base != end ) ) ||
+			     ( ( base >= base_pre ) && ( base <= end_pre ) ) ||
+			     ( ( end >= base_pre ) && ( end <= end_pre ) ) ||
+			     ( ( base_pre >= base ) && ( base_pre <= end ) ) ||
+			     ( ( end_pre >= base ) && ( end_pre <= end ) ) ) {
+
+				/* MTRR is overlapped. */
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+unsigned int XenDriver::cpuid_eax( unsigned int op ) const
+{
+	unsigned int eax = 0;
+	unsigned int ebx = 0;
+	unsigned int ecx = 0;
+	unsigned int edx = 0;
+
+	__get_cpuid( op, &eax, &ebx, &ecx, &edx );
+
+	return eax;
+}
+
+bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
+{
+	const uint8_t MTRR_TYPE_UNCACHABLE = 0;
+	const uint8_t MTRR_TYPE_WRTHROUGH  = 4;
+
+	int32_t seg, index;
+	uint8_t overlap_mtrr = 0, overlap_mtrr_pos = 0;
+
+	static bool               hwMtrrInit = false;
+	static struct hvm_hw_mtrr hwMtrr;
+
+	if ( !hwMtrrInit ) {
+		StatsCounter partialCounter( "partialContext" );
+		StatsCounter mtrrCounter( "partialMtrr" );
+		if ( xc_.domainHvmGetContextPartial( domain_, HVM_SAVE_CODE( MTRR ), 0, &hwMtrr, sizeof( hwMtrr ) ) !=
+		     0 ) {
+			logger << ERROR << "xc_domain_hvm_getcontext_partial() failed: " << strerror( errno )
+			       << std::flush;
+			return false;
+		} else
+			hwMtrrInit = true;
+	}
+
+	uint8_t  def_type = hwMtrr.msr_mtrr_def_type & 0xff;
+	uint8_t  enabled  = hwMtrr.msr_mtrr_def_type >> 10;
+	uint8_t *u8_fixed = ( uint8_t * )hwMtrr.msr_mtrr_fixed;
+
+	if ( !( enabled & 0x2 ) ) {
+		type = MTRR_TYPE_UNCACHABLE;
+		return true;
+	}
+
+	if ( ( guestAddress < 0x100000 ) && ( enabled & 1 ) ) {
+
+		/* Fixed range MTRR takes effective */
+		int32_t addr = ( uint32_t )guestAddress;
+
+		if ( addr < 0x80000 ) {
+			seg  = ( addr >> 16 );
+			type = u8_fixed[seg];
+		} else if ( addr < 0xc0000 ) {
+			seg   = ( addr - 0x80000 ) >> 14;
+			index = ( seg >> 3 ) + 1;
+			seg &= 7; /* select 0-7 segments */
+			type = u8_fixed[index * 8 + seg];
+		} else {
+			/* 0xC0000 --- 0x100000 */
+			seg   = ( addr - 0xc0000 ) >> 12;
+			index = ( seg >> 3 ) + 3;
+			seg &= 7; /* select 0-7 segments */
+			type = u8_fixed[index * 8 + seg];
+		}
+
+		return true;
+	}
+
+	uint8_t num_var_ranges = hwMtrr.msr_mtrr_cap & 0xff;
+	bool    overlapped     = isVarMtrrOverlapped( hwMtrr );
+
+	for ( seg = 0; seg < num_var_ranges; ++seg ) {
+		uint64_t phys_base = hwMtrr.msr_mtrr_var[seg * 2];
+		uint64_t phys_mask = hwMtrr.msr_mtrr_var[seg * 2 + 1];
+
+		if ( phys_mask & ( 1 << MTRR_PHYSMASK_VALID_BIT ) ) {
+			if ( ( ( uint64_t )guestAddress & phys_mask ) >> MTRR_PHYSMASK_SHIFT ==
+			     ( phys_base & phys_mask ) >> MTRR_PHYSMASK_SHIFT ) {
+
+				if ( overlapped ) {
+					overlap_mtrr |= 1 << ( phys_base & MTRR_PHYSBASE_TYPE_MASK );
+					overlap_mtrr_pos = phys_base & MTRR_PHYSBASE_TYPE_MASK;
+				} else
+					return phys_base & MTRR_PHYSBASE_TYPE_MASK;
+			}
+		}
+	}
+
+	if ( overlap_mtrr == 0 ) {
+		type = def_type;
+		return true;
+	}
+
+	if ( !( overlap_mtrr & ~( ( ( uint8_t )1 ) << overlap_mtrr_pos ) ) ) {
+		type = overlap_mtrr_pos;
+		return true;
+	}
+
+	if ( overlap_mtrr & 0x1 ) {
+		/* Two or more match, one is UC. */
+		type = MTRR_TYPE_UNCACHABLE;
+		return true;
+	}
+
+	if ( !( overlap_mtrr & 0xaf ) ) {
+		/* Two or more match, WT and WB. */
+		type = MTRR_TYPE_WRTHROUGH;
+		return true;
+	}
+
+	/* Behaviour is undefined, but return the last overlapped type. */
+	type = overlap_mtrr_pos;
+	return true;
+}
+
 bool XenDriver::maxGPFN( unsigned long long &gfn )
 {
-	xen_pfn_t xpfn = 0;
+	gfn = maxGPFN_;
 
-	if ( xc_.domainMaximumGpfn( domain_, &xpfn ) < 0 )
-		return false;
+	// xen_pfn_t xpfn = 0;
 
-	gfn = xpfn;
+	// if ( xc_.domainMaximumGpfn( domain_, &xpfn ) < 0 )
+	// 	return false;
+
+	// gfn = xpfn + 1;
 
 	return true;
 }
@@ -786,16 +989,18 @@ bool XenDriver::getEPTPageConvertible( unsigned short index, unsigned long long 
 	return true;
 }
 
-bool XenDriver::setEPTPageConvertible( unsigned short index, unsigned long long address, bool convertible )
+bool XenDriver::setPageConvertibleImpl( const ConvertibleMap &convMap, unsigned short view )
 {
 	if ( !altp2mState_ )
 		return false;
 
-	int rc = altp2mState_.setSuppressVE( index, gpa_to_gfn( address ), convertible );
+	for ( auto &&item : convMap ) {
+		int rc = altp2mState_.setSuppressVE( view, item.first, item.second );
 
-	if ( rc < 0 ) {
-		logger << ERROR << "Failed to write the convertible bit: " << strerror( -rc ) << std::flush;
-		return false;
+		if ( rc < 0 ) {
+			logger << ERROR << "Failed to write the convertible bit: " << strerror( -rc ) << std::flush;
+			return false;
+		}
 	}
 
 	return true;
@@ -829,7 +1034,12 @@ bool XenDriver::switchEPT( unsigned short index )
 	if ( !altp2mState_ )
 		return false;
 
-	return altp2mState_.switchToView( index ) >= 0;
+	if ( altp2mState_.switchToView( index ) >= 0 ) {
+		altp2mViewId_ = index;
+		return true;
+	}
+
+	return false;
 }
 
 bool XenDriver::setVEInfoPage( unsigned short vcpu, unsigned long long gpa )

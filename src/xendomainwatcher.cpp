@@ -158,7 +158,6 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 		return false; // timeout
 
 	if ( fd.revents & POLLIN ) {
-
 		std::vector<std::string> vec;
 
 		if ( !xs_.readWatch( vec ) )
@@ -168,8 +167,8 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 			ret = getNewDomains( domains );
 
 		if ( releaseToken_ == vec[XS::watchToken] ) {
-
-			std::map<domid_t, std::string>::iterator i = domIds_.begin(), j;
+			auto i = domIds_.begin();
+			decltype(i) j;
 
 			while ( i != domIds_.end() ) {
 				j = i;

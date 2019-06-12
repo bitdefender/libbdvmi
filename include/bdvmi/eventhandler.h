@@ -22,8 +22,11 @@ namespace bdvmi {
 
 // Forward declaration
 class Registers;
+class EmulatorContext;
 
 enum HVAction { NONE, EMULATE_NOWRITE, SKIP_INSTRUCTION, ALLOW_VIRTUAL, EMULATE_SET_CTXT };
+
+enum GuestState { RUNNING, POST_SHUTDOWN, SHUTDOWN_IN_PROGRESS };
 
 #define BDVMI_DESC_ACCESS_IDTR  0x01
 #define BDVMI_DESC_ACCESS_GDTR  0x02
@@ -50,8 +53,8 @@ public:
 	// Callback for page faults.
 	virtual void handlePageFault( unsigned short vcpu, const Registers &regs, uint64_t physAddress,
 	                              uint64_t virtAddress, bool read, bool write, bool execute, bool inGpt,
-				      HVAction &action, uint8_t *emulatorCtx, uint32_t &emuCtxSize,
-				      unsigned short &instructionSize ) = 0;
+	                              HVAction &action, EmulatorContext &emulatorCtx,
+	                              unsigned short &instructionSize ) = 0;
 
 	// Callback for VMCALL events.
 	virtual void handleVMCALL( unsigned short vcpu, const Registers &regs ) = 0;
@@ -70,7 +73,7 @@ public:
 
 	// Notice that the connection to the guest has been terminated (if guestStillRunning is true
 	// then this has _not_ happened because the guest shut down or has been forcefully terminated).
-	virtual void handleSessionOver( bool guestStillRunning ) = 0;
+	virtual void handleSessionOver( GuestState state ) = 0;
 
 	virtual void handleFatalError() = 0;
 

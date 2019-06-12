@@ -19,7 +19,7 @@
 #include <list>
 #include <set>
 #include <string>
-#include <map>
+#include <unordered_map>
 #include <mutex>
 
 #include "bdvmi/driver.h"
@@ -50,13 +50,17 @@ public:
 	// Create a XenDriver object with the domain name
 	XenDriver( const std::string &uuid, bool altp2m, bool hvmOnly = true );
 
-	// Create a XenDriver object with the domain ID (# xm list)
+	// Create a XenDriver object with the domain ID (# xl list)
 	XenDriver( domid_t domain, bool altp2m, bool hvmOnly = true );
+
+	~XenDriver();
 
 public:
 	bool cpuCount( unsigned int &count ) const override;
 
 	bool tscSpeed( unsigned long long &speed ) const override;
+
+	bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const override;
 
 	bool registers( unsigned short vcpu, Registers &regs ) const override;
 
@@ -86,8 +90,6 @@ public:
 	bool maxGPFN( unsigned long long &gfn ) override;
 
 	bool getEPTPageConvertible( unsigned short index, unsigned long long address, bool &convertible ) override;
-
-	bool setEPTPageConvertible( unsigned short index, unsigned long long address, bool convertible ) override;
 
 	bool createEPT( unsigned short &index ) override;
 
@@ -157,6 +159,8 @@ private:
 	bool getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
 	                            unsigned short view ) override;
 
+	bool setPageConvertibleImpl( const ConvertibleMap &convMap, unsigned short view ) override;
+
 public: // Xen specific-stuff
 	XC &nativeHandle() const
 	{
@@ -193,6 +197,12 @@ private:
 
 	bool getPAT( unsigned short vcpu, uint64_t &pat ) const;
 
+	bool isVarMtrrOverlapped( const struct hvm_hw_mtrr &hwMtrr ) const;
+
+	void getMtrrRange( uint64_t base_msr, uint64_t mask_msr, uint64_t &base, uint64_t &end ) const;
+
+	unsigned int cpuid_eax( unsigned int op ) const;
+
 	static std::string queryUuid( XS &xs, const std::string &domain );
 
 private:
@@ -205,13 +215,15 @@ private:
 	mutable RegsCache regsCache_;
 	bool              update_{ false };
 	DelayedWrite      delayedWrite_;
-	std::map<unsigned short, bool> pendingInjections_;
+	std::unordered_map<unsigned short, bool> pendingInjections_;
 	uint32_t             startTime_{ static_cast<uint32_t>( -1 ) };
 	mutable bool         patInitialized_{ false };
 	mutable uint64_t     msrPat_{ 0 };
+	unsigned long long   maxGPFN_{ 0 };
 	XenAltp2mDomainState altp2mState_;
 	std::function<int( const MemAccessMap &, unsigned short )> setMemAccess_;
 	std::function<int( unsigned long long, xenmem_access_t *, unsigned short )> getMemAccess_;
+	unsigned int physAddr_{ 0 };
 };
 
 } // namespace bdvmi

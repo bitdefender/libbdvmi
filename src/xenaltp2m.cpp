@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
+#include "bdvmi/driver.h"
 #include "bdvmi/logger.h"
 #include "xenaltp2m.h"
 #include "xcwrapper.h"
@@ -66,8 +67,13 @@ int XenAltp2mDomainState::createView( xenmem_access_t defaultAccess, uint16_t &i
 		return -ENOTSUP;
 
 	int rc;
-	if ( ( rc = xc_.altp2mCreateView( domain_, defaultAccess, &id ) ) >= 0 )
+	if ( ( rc = xc_.altp2mCreateView( domain_, defaultAccess, &id ) ) >= 0 ) {
+		// Driver::MemAccessMap ma;
+		// ma[~0ull] = Driver::PAGE_READ | Driver::PAGE_WRITE;
+		// xc_.altp2mSetMemAccess( domain_, id, ma );
+
 		views_.insert( id );
+	}
 
 	return rc;
 }

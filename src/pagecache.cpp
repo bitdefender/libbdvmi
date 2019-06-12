@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
+#include <algorithm>
 #include "bdvmi/logger.h"
 #include "bdvmi/pagecache.h"
 #include <sys/mman.h>
@@ -20,11 +21,11 @@
 #include <fstream>
 #include <iomanip>
 #include <errno.h>
+#include <vector>
 
 namespace bdvmi {
 
-PageCache::PageCache( Driver &driver )
-    : driver_{ driver }
+PageCache::PageCache( Driver *driver ) : driver_{ driver }
 {
 	std::ifstream in( "/proc/sys/kernel/osrelease" );
 
@@ -34,12 +35,12 @@ PageCache::PageCache( Driver &driver )
 		logger << WARNING << "Cannot access /proc/sys/kernel/osrelease" << std::flush;
 }
 
-bool PageCache::checkPages( void *addr, size_t size )
+bool PageCache::checkPages( void *addr, size_t size ) const
 {
 	unsigned char vec[1] = {};
 
 	// The page is not present or otherwise unavailable
-	if ( linuxMajVersion_ < 4  && ( mincore( addr, size, vec ) < 0 || !( vec[0] & 0x01 ) ) )
+	if ( linuxMajVersion_ < 4 && ( mincore( addr, size, vec ) < 0 || !( vec[0] & 0x01 ) ) )
 		return false;
 
 	return true;
@@ -55,14 +56,15 @@ size_t PageCache::setLimit( size_t limit )
 
 void PageCache::reset()
 {
-	for ( auto &&item : cache_ ) {
-		if ( item.second.inUse )
-			logger << TRACE << "Address " << item.second.pointer << " (gfn "
-				<< std::hex << reverseCache_[item.second.pointer]
-				<< std::dec << ") is still mapped (" << item.second.inUse
-				<< ") ?!" << std::flush;
+	if ( driver_ ) {
+		for ( auto &&item : cache_ ) {
+			if ( item.second.inUse )
+				logger << TRACE << "Address " << item.second.pointer << " (gfn " << std::hex
+				       << reverseCache_[item.second.pointer] << std::dec << ") is still mapped ("
+				       << item.second.inUse << ") ?!" << std::flush;
 
-		driver_.unmapGuestPageImpl( item.second.pointer, item.first );
+			driver_->unmapGuestPageImpl( item.second.pointer, item.first );
+		}
 	}
 
 	cache_.clear();
@@ -75,7 +77,7 @@ PageCache::~PageCache()
 
 MapReturnCode PageCache::update( unsigned long gfn, void *&pointer )
 {
-	cache_t::iterator i = cache_.find( gfn );
+	auto i = cache_.find( gfn );
 
 	if ( i == cache_.end() ) // not found
 		return insertNew( gfn, pointer );
@@ -89,12 +91,12 @@ MapReturnCode PageCache::update( unsigned long gfn, void *&pointer )
 
 void PageCache::release( void *pointer )
 {
-	reverse_cache_t::const_iterator ri = reverseCache_.find( pointer );
+	auto ri = reverseCache_.find( pointer );
 
 	if ( ri == reverseCache_.end() )
 		return; // nothing to do, not in cache (how did we get here though?)
 
-	cache_t::iterator ci = cache_.find( ri->second );
+	auto ci = cache_.find( ri->second );
 
 	if ( ci == cache_.end() )
 		return; // this should be impossible
@@ -104,19 +106,24 @@ void PageCache::release( void *pointer )
 
 MapReturnCode PageCache::insertNew( unsigned long gfn, void *&pointer )
 {
+	if ( !driver_ ) {
+		pointer = nullptr;
+		return MAP_FAILED_GENERIC;
+	}
+
 	if ( cache_.size() >= cacheLimit_ )
 		cleanup();
 
 	CacheInfo ci;
 
 	ci.accessed = generateIndex();
-	ci.inUse = 1;
-	ci.pointer = driver_.mapGuestPageImpl( gfn );
+	ci.inUse    = 1;
+	ci.pointer  = driver_->mapGuestPageImpl( gfn );
 
 	if ( !ci.pointer ) {
 		/*
 		logger << ERROR << "xc_map_foreign_range(0x" << std::setfill( '0' ) << std::setw( 16 )
-			<< std::hex << gfn << ") failed: " << strerror( errno ) << std::flush;
+		        << std::hex << gfn << ") failed: " << strerror( errno ) << std::flush;
 		*/
 
 		pointer = nullptr;
@@ -124,16 +131,16 @@ MapReturnCode PageCache::insertNew( unsigned long gfn, void *&pointer )
 	}
 
 	if ( !checkPages( ci.pointer, PAGE_SIZE ) ) {
-		logger << ERROR << "check_pages(0x" << std::setfill( '0' ) << std::setw( 16 )
-			<< std::hex << gfn << ") failed: " << strerror( errno ) << std::flush;
+		logger << ERROR << "check_pages(0x" << std::setfill( '0' ) << std::setw( 16 ) << std::hex << gfn
+		       << ") failed: " << strerror( errno ) << std::flush;
 
-		driver_.unmapGuestPageImpl( ci.pointer, gfn );
+		driver_->unmapGuestPageImpl( ci.pointer, gfn );
 
 		pointer = nullptr;
 		return MAP_PAGE_NOT_PRESENT;
 	}
 
-	cache_[gfn] = ci;
+	cache_[gfn]               = ci;
 	reverseCache_[ci.pointer] = gfn;
 
 	pointer = ci.pointer;
@@ -142,12 +149,18 @@ MapReturnCode PageCache::insertNew( unsigned long gfn, void *&pointer )
 
 void PageCache::cleanup()
 {
-	std::multimap<unsigned long, unsigned long> timeOrderedGFNs;
+	std::vector<std::pair<unsigned long, unsigned long>> timeOrderedGFNs;
 
 	for ( auto &&item : cache_ )
 		if ( item.second.inUse < 1 )
-			timeOrderedGFNs.insert(
+			timeOrderedGFNs.push_back(
 			        std::pair<unsigned long, unsigned long>( item.second.accessed, item.first ) );
+
+	if ( timeOrderedGFNs.empty() ) // All mapped pages are in use.
+		return;
+
+	std::sort( timeOrderedGFNs.begin(), timeOrderedGFNs.end(),
+	           []( const auto &lhs, const auto &rhs ) { return lhs.first < rhs.first; } );
 
 	size_t count = 0;
 
@@ -155,18 +168,18 @@ void PageCache::cleanup()
 		if ( count++ >= cacheLimit_ / 2 )
 			break;
 
-		cache_t::iterator ci = cache_.find( item.second );
+		auto ci = cache_.find( item.second );
 
 		if ( ci == cache_.end() )
 			continue;
 
-		driver_.unmapGuestPageImpl( ci->second.pointer, ci->first );
+		driver_->unmapGuestPageImpl( ci->second.pointer, ci->first );
 		reverseCache_.erase( ci->second.pointer );
 		cache_.erase( ci );
 	}
 }
 
-unsigned long PageCache::generateIndex()
+unsigned long PageCache::generateIndex() const
 {
 	static unsigned long index = 0;
 	return index++;

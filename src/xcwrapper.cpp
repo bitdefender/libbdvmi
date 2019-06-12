@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
+#define BDVMI_DISABLE_STATS
+
 #include "bdvmi/driver.h"
 #include "bdvmi/statscollector.h"
 
@@ -155,6 +157,8 @@ public:
 	std::function<xc_monitor_write_ctrlreg_fn_t>          monitorWriteCtrlreg;
 	std::function<xc_monitor_descriptor_access_fn_t>      monitorDescriptorAccess;
 
+	std::function<xc_vm_event_get_version_fn_t> vmEventGetVersion;
+
 	std::function<bdvmi_evtchn_open_fn_t>             evtchnOpen;
 	std::function<bdvmi_evtchn_close_fn_t>            evtchnClose;
 	std::function<bdvmi_evtchn_fd_fn_t>               evtchnFd;
@@ -209,8 +213,8 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 	if ( !xci )
 		throw std::runtime_error( "xc_interface_open() failed" );
 
-	XS           xs;
-	unsigned int size = 0;
+	XS               xs;
+	unsigned int     size = 0;
 	CUniquePtr<char> xenServer( xs.readTimeout( XS::xbtNull, "/mh/XenSource-TM_XenEnterprise-TM", &size, 1 ) );
 
 	if ( xenServer && *xenServer.get() != '\0' )
@@ -236,7 +240,7 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 	ss << std::hex << std::setfill( '0' );
 
 	for ( int i = 0; i < 16; ++i ) {
-		ss << std::setw( 2 ) << ( int )xen_uuid[i];
+		ss << std::setw( 2 ) << static_cast<int>( xen_uuid[i] );
 		if ( i == 3 || i == 5 || i == 7 || i == 9 )
 			ss << '-';
 	}
@@ -280,6 +284,7 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 	monitorGuestRequest        = LOOKUP_XC_FUNCTION_REQUIRED( monitor_guest_request );
 	monitorWriteCtrlreg        = LOOKUP_XC_FUNCTION_REQUIRED( monitor_write_ctrlreg );
 	monitorDescriptorAccess    = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_descriptor_access );
+	vmEventGetVersion          = LOOKUP_XC_FUNCTION_REQUIRED( vm_event_get_version );
 
 	evtchnOpen            = LOOKUP_BDVMI_FUNCTION_REQUIRED( evtchn_open );
 	evtchnClose           = LOOKUP_BDVMI_FUNCTION_REQUIRED( evtchn_close );
@@ -325,8 +330,33 @@ template <> struct XCFactoryImpl<xc_domain_getinfo_fn_t, xc_domain_getinfo_fn_na
 				info.dying       = ( impl.dying != 0 );
 				info.shutdown    = ( impl.shutdown != 0 );
 				info.max_vcpu_id = impl.max_vcpu_id;
+				info.max_memkb   = impl.max_memkb;
 			}
 			return ret;
+		};
+	}
+};
+
+template <> struct XCFactoryImpl<xc_vm_event_get_version_fn_t, xc_vm_event_get_version_fn_name> {
+	static std::function<xc_vm_event_get_version_fn_t> lookup( const XCFactory *p, bool )
+	{
+		using fn_t = int( xc_interface * );
+		fn_t *fun  = p->lib_.lookup<fn_t, xc_vm_event_get_version_fn_name>( false );
+
+		return [p, fun]( xc_interface *xci ) {
+			int ret = -1;
+
+			if ( fun )
+				ret = fun( xci );
+
+			// Guard against newer toolstack + older Xen hypervisor.
+			if ( ret > 0 )
+				return ret;
+
+			if ( p->version >= Version( 4, 12 ) )
+				return 4;
+
+			return 3;
 		};
 	}
 };
@@ -363,6 +393,9 @@ template <> struct XCFactoryImpl<xc_set_mem_access_fn_t, xc_set_mem_access_fn_na
 				std::vector<uint8_t>  access_type;
 				std::vector<uint64_t> gfns;
 
+				access_type.reserve( access.size() );
+				gfns.reserve( access.size() );
+
 				for ( auto &&item : access ) {
 					access_type.push_back( XC::xenMemAccess( item.second ) );
 					gfns.push_back( item.first );
@@ -394,6 +427,9 @@ template <> struct XCFactoryImpl<xc_altp2m_set_mem_access_fn_t, xc_altp2m_set_me
 			               const Driver::MemAccessMap &access ) {
 				std::vector<uint8_t>  access_type;
 				std::vector<uint64_t> gfns;
+
+				access_type.reserve( access.size() );
+				gfns.reserve( access.size() );
 
 				for ( auto &&item : access ) {
 					access_type.push_back( XC::xenMemAccess( item.second ) );
@@ -593,6 +629,7 @@ XC::XC()
       monitorMovToMsr{ std::bind( XCFactory::instance().monitorMovToMsr, xci_.get(), _1, _2, _3, _4 ) },
       monitorGuestRequest{ std::bind( XCFactory::instance().monitorGuestRequest, xci_.get(), _1, _2, _3, _4 ) },
       monitorWriteCtrlreg{ std::bind( XCFactory::instance().monitorWriteCtrlreg, xci_.get(), _1, _2, _3, _4, _5, _6 ) },
+      vmEventGetVersion{ std::bind( XCFactory::instance().vmEventGetVersion, xci_.get() ) },
       evtchnOpen{ XCFactory::instance().evtchnOpen }, evtchnClose{ XCFactory::instance().evtchnClose },
       evtchnFd{ XCFactory::instance().evtchnFd }, evtchnPending{ XCFactory::instance().evtchnPending },
       evtchnBindInterdomain{ XCFactory::instance().evtchnBindInterdomain },
@@ -608,19 +645,19 @@ XC::XC()
 
 	if ( XCFactory::instance().monitorDescriptorAccess )
 		monitorDescriptorAccess =
-			std::bind( XCFactory::instance().monitorDescriptorAccess, xci_.get(), _1, _2 );
+		        std::bind( XCFactory::instance().monitorDescriptorAccess, xci_.get(), _1, _2 );
 
 	if ( XCFactory::instance().altp2mSetVcpuDisableNotify )
 		altp2mSetVcpuDisableNotify =
-			std::bind( XCFactory::instance().altp2mSetVcpuDisableNotify, xci_.get(), _1, _2 );
+		        std::bind( XCFactory::instance().altp2mSetVcpuDisableNotify, xci_.get(), _1, _2 );
 
 	if ( XCFactory::instance().altp2mSetSuppressVE )
 		altp2mSetSuppressVE =
-			std::bind( XCFactory::instance().altp2mSetSuppressVE, xci_.get(), _1, _2, _3, _4 );
+		        std::bind( XCFactory::instance().altp2mSetSuppressVE, xci_.get(), _1, _2, _3, _4 );
 
 	if ( XCFactory::instance().altp2mGetSuppressVE )
 		altp2mGetSuppressVE =
-			std::bind( XCFactory::instance().altp2mGetSuppressVE, xci_.get(), _1, _2, _3, _4 );
+		        std::bind( XCFactory::instance().altp2mGetSuppressVE, xci_.get(), _1, _2, _3, _4 );
 }
 
 xenmem_access_t XC::xenMemAccess( uint8_t bdvmiBitmask )

@@ -16,10 +16,12 @@
 #ifndef __BDVMIXENEVENTMANAGER_H_INCLUDED__
 #define __BDVMIXENEVENTMANAGER_H_INCLUDED__
 
+#include "bdvmi/eventhandler.h"
 #include "bdvmi/eventmanager.h"
 #include <fstream>
 #include <stdint.h>
 #include <string>
+#include <unordered_map>
 
 extern "C" {
 #define private rprivate /* private is a C++ keyword */
@@ -82,11 +84,9 @@ private:
 
 	int waitForEventOrTimeout( int ms );
 
-	template<typename Request, typename Ring>
-	void getRequest( Request &req );
+	template <typename Request, typename Ring> void getRequest( Request &req );
 
-	template<typename Response, typename Ring>
-	void putResponse( const Response &rsp );
+	template <typename Response, typename Ring> void putResponse( const Response &rsp );
 
 	void resumePage();
 
@@ -94,15 +94,25 @@ private:
 
 	void cleanup();
 
-	template<typename Response>
-	void setRegisters( Response &rsp );
+	template <typename Response> void setRegisters( Response &rsp );
 
 	bool setCrEvents( unsigned int cr, bool enable );
 
 	uint64_t getMsr( unsigned short vcpu, uint32_t msr ) const;
 
-	template<typename Request, typename Response, typename Ring>
-	void waitForEventsByVMEventVersion();
+	template <typename Request, typename Response, typename Ring> void waitForEventsByVMEventVersion();
+
+	template <typename Request, typename Response>
+	void handleMemAccess( const Request &req, Response &rsp, bool &skip );
+
+	template <typename Request, typename Response> void handleCrWrite( const Request &req, Response &rsp );
+
+	template <typename Request, typename Response> void handleMsrWrite( const Request &req, Response &rsp );
+
+	template <typename Request, typename Response>
+	void handleDescriptorWrite( const Request &req, Response &rsp, bool &skip );
+
+	template <typename Request> void handleBreakpoint( const Request &req );
 
 public:
 	// Don't allow copying for these objects
@@ -112,31 +122,29 @@ public:
 	XenEventManager &operator=( const XenEventManager & ) = delete;
 
 private:
-	XenDriver &          driver_;
-	XC &                 xc_;
-	domid_t              domain_;
-	bool                 stop_{ false };
-	xc_evtchn *          xce_{ nullptr };
-	int                  port_{ -1 };
-	XS                   xs_;
-	uint32_t             evtchnPort_{ 0 };
-	void *               backRing_{ nullptr };
-	void *               ringPage_{ nullptr };
-	std::string          watchToken_;
-	std::string          controlXenStorePath_;
-	bool                 memAccessOn_{ false };
-	bool                 evtchnOn_{ false };
-	bool                 evtchnBindOn_{ false };
-	bool                 guestStillRunning_{ true };
-	bool                 firstReleaseWatch_{ true };
-	bool                 firstControlCommand_{ true };
-	bool                 useAltP2m_;
-	bool                 foundEvents_{ false };
-	uint32_t             vmEventInterfaceVersion_{ 0 };
-	bool                 useVMEventV4_{ false };
+	XenDriver & driver_;
+	XC &        xc_;
+	domid_t     domain_;
+	bool        stop_{ false };
+	xc_evtchn * xce_{ nullptr };
+	int         port_{ -1 };
+	XS          xs_;
+	uint32_t    evtchnPort_{ 0 };
+	void *      backRing_{ nullptr };
+	void *      ringPage_{ nullptr };
+	std::string watchToken_;
+	std::string controlXenStorePath_;
+	bool        memAccessOn_{ false };
+	bool        evtchnOn_{ false };
+	bool        evtchnBindOn_{ false };
+	bool        firstReleaseWatch_{ true };
+	bool        firstControlCommand_{ true };
+	bool        foundEvents_{ false };
+	uint32_t    vmEventInterfaceVersion_{ 0 };
+	GuestState  guestState_{ RUNNING };
 
-	using msrs_values_map_t = std::map<uint32_t, uint64_t>;
-	using vcpu_msrs_t       = std::map<unsigned short, msrs_values_map_t>;
+	using msrs_values_map_t = std::unordered_map<uint32_t, uint64_t>;
+	using vcpu_msrs_t       = std::unordered_map<unsigned short, msrs_values_map_t>;
 	vcpu_msrs_t msrOldValueCache_;
 
 #ifdef DEBUG_DUMP_EVENTS

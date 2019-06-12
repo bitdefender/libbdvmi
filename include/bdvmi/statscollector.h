@@ -16,10 +16,11 @@
 #ifndef __BDVMISTATSCOLLECTOR_H_INCLUDED__
 #define __BDVMISTATSCOLLECTOR_H_INCLUDED__
 
-#include <map>
 #include <mutex>
 #include <string>
 #include <atomic>
+#include <unordered_map>
+#include <utility>
 
 namespace bdvmi {
 
@@ -43,33 +44,52 @@ public:
 
 	void dump() const;
 
+	bool enabled() const
+	{
+		return enable_;
+	}
+
 private:
-	std::atomic_bool                                     enable_{ false };
-	std::map<std::string, unsigned long>                 counter_;
-	std::map<std::string, std::chrono::duration<double>> duration_;
-	mutable std::mutex                                   statsMutex_;
+	std::atomic_bool enable_{ false };
+	std::unordered_map<std::string, std::pair<unsigned long, std::chrono::duration<double>>> stats_;
+	mutable std::mutex statsMutex_;
 };
+
+#ifndef BDVMI_DISABLE_STATS
 
 class StatsCounter {
 
 public:
-	StatsCounter( const std::string &st )
+	explicit StatsCounter( std::string st ) : name_{ std::move( st ) }
 	{
-		start_ = std::chrono::system_clock::now();
-		name_  = st;
+		if ( !StatsCollector::instance().enabled() )
+			return;
+
+		start_ = std::chrono::high_resolution_clock::now();
 	}
 
 	~StatsCounter()
 	{
-		stop_ = std::chrono::system_clock::now();
-		StatsCollector::instance().count( name_, stop_ - start_ );
+		if ( !StatsCollector::instance().enabled() )
+			return;
+
+		StatsCollector::instance().count( name_, std::chrono::high_resolution_clock::now() - start_ );
 	}
 
 private:
 	std::string                                                 name_;
 	std::chrono::time_point<std::chrono::high_resolution_clock> start_;
-	std::chrono::time_point<std::chrono::high_resolution_clock> stop_;
 };
+
+#else
+
+struct StatsCounter {
+	StatsCounter( ... )
+	{
+	}
+};
+
+#endif // BDVMI_DISABLE_STATS
 
 } // namespace bdvmi
 

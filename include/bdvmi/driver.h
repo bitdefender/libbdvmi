@@ -19,9 +19,9 @@
 #include <stdint.h>
 #include <cstdlib>
 #include <cstring>
-#include <map>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 
 #define PAGE_SHIFT 12
 #define PAGE_SIZE ( 1UL << PAGE_SHIFT )
@@ -121,6 +121,19 @@ struct Registers {
 	GuestX86Mode guest_x86_mode{ ERROR };
 };
 
+struct EmulatorContext {
+	void reset()
+	{
+		address_ = 0;
+		size_    = 0;
+		memset( data_, 0, sizeof( data_ ) );
+	}
+
+	uint64_t address_{};
+	uint32_t size_{};
+	uint8_t  data_[164]{};
+};
+
 enum MapReturnCode { MAP_SUCCESS, MAP_FAILED_GENERIC, MAP_PAGE_NOT_PRESENT, MAP_INVALID_PARAMETER };
 
 class EventHandler;
@@ -130,12 +143,13 @@ class Driver {
 public:
 	enum PageRestriction { PAGE_READ = 1 << 0, PAGE_WRITE = 1 << 1, PAGE_EXECUTE = 1 << 2 };
 
-	using MemAccessMap     = std::map<uint64_t, uint8_t>;
-	using ViewMemAccessMap = std::map<uint16_t, MemAccessMap>;
+	using ConvertibleMap     = std::unordered_map<uint64_t, bool>;
+	using ViewConvertibleMap = std::unordered_map<uint16_t, ConvertibleMap>;
+	using MemAccessMap       = std::unordered_map<uint64_t, uint8_t>;
+	using ViewMemAccessMap   = std::unordered_map<uint16_t, MemAccessMap>;
 
 public:
-	Driver( EventHandler *handler = nullptr )
-	    : handler_{ handler }
+	Driver( EventHandler *handler = nullptr ) : handler_{ handler }
 	{
 	}
 
@@ -159,6 +173,9 @@ public:
 
 	// Get TSC speed
 	virtual bool tscSpeed( unsigned long long &speed ) const = 0;
+
+	// Get MTRR type for guestAddress
+	virtual bool mtrrType( unsigned long long guestAddress, uint8_t &type ) const = 0;
 
 	// Set guest page protection (_NOT_ virtual)
 	bool setPageProtection( unsigned long long guestAddress, bool read, bool write, bool execute,
@@ -201,9 +218,10 @@ public:
 
 	virtual bool maxGPFN( unsigned long long &gfn ) = 0;
 
-	virtual bool getEPTPageConvertible( unsigned short index, unsigned long long address, bool &convertible ) = 0;
+	virtual bool getEPTPageConvertible( unsigned short index, unsigned long long guestAddress,
+	                                    bool &convertible ) = 0;
 
-	virtual bool setEPTPageConvertible( unsigned short index, unsigned long long address, bool convertible ) = 0;
+	bool setEPTPageConvertible( unsigned short index, unsigned long long guestAddress, bool convertible );
 
 	virtual bool createEPT( unsigned short &index ) = 0;
 
@@ -250,15 +268,19 @@ private:
 
 	virtual bool setPageProtectionImpl( const MemAccessMap &accessMap, unsigned short view ) = 0;
 
+	virtual bool setPageConvertibleImpl( const ConvertibleMap &convMap, unsigned short view ) = 0;
+
 	// Get guest page protection
 	virtual bool getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
 	                                    unsigned short view ) = 0;
 
 private:
-	EventHandler *   handler_{ nullptr };
-	ViewMemAccessMap memAccessCache_;
-	ViewMemAccessMap delayedMemAccessWrite_;
-	std::mutex       memAccessCacheMutex_;
+	EventHandler *     handler_{ nullptr };
+	ViewMemAccessMap   memAccessCache_;
+	ViewMemAccessMap   delayedMemAccessWrite_;
+	ViewConvertibleMap delayedConvertibleWrite_;
+	std::mutex         memAccessCacheMutex_;
+	std::mutex         convertibleCacheMutex_;
 
 	friend class PageCache;
 };

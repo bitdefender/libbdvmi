@@ -29,8 +29,7 @@ void StatsCollector::enable( bool value )
 	enable_ = value;
 
 	std::lock_guard<std::mutex> lock( statsMutex_ );
-	counter_.clear();
-	duration_.clear();
+	stats_.clear();
 }
 
 void StatsCollector::count( const std::string &st, const std::chrono::duration<double> &duration )
@@ -39,8 +38,11 @@ void StatsCollector::count( const std::string &st, const std::chrono::duration<d
 		return;
 
 	std::lock_guard<std::mutex> lock( statsMutex_ );
-	counter_[st]++;
-	duration_[st] += duration;
+
+	auto &value = stats_[st];
+
+	value.first++;
+	value.second += duration;
 }
 
 void StatsCollector::dump() const
@@ -48,13 +50,17 @@ void StatsCollector::dump() const
 	std::lock_guard<std::mutex> lock( statsMutex_ );
 
 	logger << DEBUG;
-	for ( auto &&s : counter_ )
-		logger << s.first << ": " << s.second << "; ";
+
+	for ( auto &&s : stats_ )
+		logger << s.first << ": " << s.second.first << "; ";
+
 	logger << std::flush;
 
 	logger << DEBUG;
-	for ( auto &&s : duration_ )
-		logger << s.first << ": " << s.second.count() << " s; ";
+
+	for ( auto &&s : stats_ )
+		logger << s.first << ": " << s.second.second.count() << " s; ";
+
 	logger << std::flush;
 }
 

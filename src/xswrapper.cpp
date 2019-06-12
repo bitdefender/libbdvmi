@@ -94,19 +94,17 @@ XSFactory &XSFactory::instance()
 	return instance;
 }
 
-XSFactory::XSFactory() : lib_( "libxenstore.so" )
+XSFactory::XSFactory()
+    : lib_{ "libxenstore.so" }, readTimeout{ lookup<xs_read_timeout_fn_t, xs_read_timeout_fn_name>() },
+      write{ lookup<xs_write_fn_t, xs_write_fn_name>() },
+      directory{ lookup<xs_directory_fn_t, xs_directory_fn_name>() },
+      watch{ lookup<xs_watch_fn_t, xs_watch_fn_name>() }, unwatch{ lookup<xs_unwatch_fn_t, xs_unwatch_fn_name>() },
+      rm{ lookup<xs_rm_fn_t, xs_rm_fn_name>() }, fileno{ lookup<xs_fileno_fn_t, xs_fileno_fn_name>() },
+      readWatch{ lookup<xs_read_watch_fn_t, xs_read_watch_fn_name>() },
+      transactionStart{ lookup<xs_transaction_start_fn_t, xs_transaction_start_fn_name>() },
+      transactionEnd{ lookup<xs_transaction_end_fn_t, xs_transaction_end_fn_name>() },
+      isDomainIntroduced{ lookup<xs_is_domain_introduced_fn_t, xs_is_domain_introduced_fn_name>() }
 {
-	readTimeout        = lookup<xs_read_timeout_fn_t, xs_read_timeout_fn_name>();
-	write              = lookup<xs_write_fn_t, xs_write_fn_name>();
-	directory          = lookup<xs_directory_fn_t, xs_directory_fn_name>();
-	watch              = lookup<xs_watch_fn_t, xs_watch_fn_name>();
-	unwatch            = lookup<xs_unwatch_fn_t, xs_unwatch_fn_name>();
-	rm                 = lookup<xs_rm_fn_t, xs_rm_fn_name>();
-	fileno             = lookup<xs_fileno_fn_t, xs_fileno_fn_name>();
-	readWatch          = lookup<xs_read_watch_fn_t, xs_read_watch_fn_name>();
-	transactionStart   = lookup<xs_transaction_start_fn_t, xs_transaction_start_fn_name>();
-	transactionEnd     = lookup<xs_transaction_end_fn_t, xs_transaction_end_fn_name>();
-	isDomainIntroduced = lookup<xs_is_domain_introduced_fn_t, xs_is_domain_introduced_fn_name>();
 }
 
 std::unique_ptr<xs_handle, void ( * )( struct xs_handle * )> XSFactory::createHandle() const

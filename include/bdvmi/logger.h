@@ -18,11 +18,13 @@
 
 #include <atomic>
 #include <functional>
-#include <map>
 #include <mutex>
 #include <ostream>
 #include <streambuf>
 #include <string>
+#include <unordered_map>
+
+#define HEXLOG( v ) std::hex << std::showbase << v << std::dec
 
 namespace bdvmi {
 
@@ -60,15 +62,15 @@ private:
 	int_type sync() override;
 
 private:
-	thread_local static std::map<long, Buffer> buffers_;
-	static std::atomic_long                    indexGenerator_;
-	long                                       index_{ 0 };
-	LogHelperFunction                          debug_;
-	LogHelperFunction                          error_;
-	LogHelperFunction                          info_;
-	LogHelperFunction                          warning_;
-	std::atomic_bool                           trace_{ false };
-	std::string                                prefix_;
+	thread_local static std::unordered_map<long, Buffer> buffers_;
+	static std::atomic_long indexGenerator_;
+	long                    index_{ 0 };
+	LogHelperFunction       debug_;
+	LogHelperFunction       error_;
+	LogHelperFunction       info_;
+	LogHelperFunction       warning_;
+	std::atomic_bool        trace_{ false };
+	std::string             prefix_;
 
 	friend class LogStream;
 };

@@ -45,7 +45,7 @@ int cmp( const Version &l, const Version &r )
 
 std::ostream &operator<<( std::ostream &str, const Version &obj )
 {
-	str << obj.verMajor_ << "." << obj.verMinor_ << obj.verExtra_;
+	str << std::dec << obj.verMajor_ << "." << obj.verMinor_ << obj.verExtra_;
 	return str;
 }
 

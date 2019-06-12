@@ -17,7 +17,7 @@
 #define __BDVMIPAGECACHE_H_INCLUDED__
 
 #include "driver.h"
-#include <map>
+#include <unordered_map>
 
 namespace bdvmi {
 
@@ -33,34 +33,35 @@ private:
 		short         inUse{ 1 };
 	};
 
-	using cache_t         = std::map<unsigned long, CacheInfo>;
-	using reverse_cache_t = std::map<void *, unsigned long>;
+	using CacheMap        = std::unordered_map<unsigned long, CacheInfo>;
+	using ReverseCacheMap = std::unordered_map<void *, unsigned long>;
 
 public:
-	PageCache( Driver &driver );
+	PageCache( Driver *driver );
 	~PageCache();
 
 public:
 	size_t setLimit( size_t limit );
 
 	void          reset();
+	void          driver( Driver *driver ) { driver_ = driver; }
 	MapReturnCode update( unsigned long gfn, void *&pointer );
 	void release( void *pointer );
 
 private:
 	MapReturnCode insertNew( unsigned long gfn, void *&pointer );
 	void          cleanup();
-	unsigned long generateIndex();
-	bool checkPages( void *addr, size_t size );
+	unsigned long generateIndex() const;
+	bool checkPages( void *addr, size_t size ) const;
 
 public: // no copying around
 	PageCache( const PageCache & ) = delete;
 	PageCache &operator=( const PageCache & ) = delete;
 
 private:
-	Driver &        driver_;
-	cache_t         cache_;
-	reverse_cache_t reverseCache_;
+	Driver *        driver_;
+	CacheMap        cache_;
+	ReverseCacheMap reverseCache_;
 	size_t          cacheLimit_{ MAX_CACHE_SIZE_DEFAULT };
 	int             linuxMajVersion_{ -1 };
 };
