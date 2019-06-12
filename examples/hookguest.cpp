@@ -57,8 +57,9 @@ public:
 	// Callback for page faults
 	void handlePageFault( unsigned short vcpu, const bdvmi::Registers & /* regs */, uint64_t /* physAddress */,
 	                      uint64_t /* virtAddress */, bool /* read */, bool /* write */, bool /* execute */,
-	                      bool /* inGpt */, bdvmi::HVAction & /* action */, bdvmi::EmulatorContext & /* emulatorCtx */,
-			      unsigned short & /* instructionLength */ ) override
+	                      bool /* inGpt */, bdvmi::HVAction & /* action */,
+	                      bdvmi::EmulatorContext & /* emulatorCtx */,
+	                      unsigned short & /* instructionLength */ ) override
 	{
 		cout << "Page fault event on VCPU: " << vcpu << endl;
 	}
