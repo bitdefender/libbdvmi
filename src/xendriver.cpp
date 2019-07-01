@@ -586,7 +586,7 @@ bool XenDriver::setRepOptimizations( bool enable )
 	if ( !xc_.monitorEmulateEachRep )
 		return false;
 
-	if ( xc_.monitorEmulateEachRep( domain_, enable ) != 0 ) {
+	if ( xc_.monitorEmulateEachRep( domain_, !enable ) != 0 ) {
 		logger << ERROR << "xc_monitor_emulate_each_rep() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
