@@ -52,14 +52,26 @@ XenEventManager::XenEventManager( XenDriver &driver, sig_atomic_t &sigStop )
 	initXenStore();
 
 #ifndef DISABLE_MEM_EVENT
-	/*
-	if ( xc_.monitorSinglestep( domain_, 1 ) < 0 ) {
-	        cleanup();
-	        throw std::runtime_error( "[ALTP2M] could not enable singlestep monitoring" );
+	if ( driver_.altp2mEnabled() ) {
+		if ( xc_.monitorSinglestep( domain_, 1 ) < 0 ) {
+			cleanup();
+		        throw std::runtime_error( "Could not enable singlestep monitoring" );
+		}
+
+		if ( xc_.monitorEmulUnimplemented && xc_.monitorEmulUnimplemented( domain_, 1 ) == 0 )
+			handleEmulUnimplemented_ = true;
+		else {
+			xc_.monitorSinglestep( domain_, 0 );
+			cleanup();
+		        throw std::runtime_error( "Could not enable unimplemented instruction monitoring" );
+		}
 	}
-	*/
 
 	initMemAccess();
+
+	if ( xc_.monitorInguestPagefault )
+		if ( xc_.monitorInguestPagefault( domain_, 1 ) != 0 )
+			logger << ERROR << "Failed to enable filtering out of page-walk-caused vm_events" << std::flush;
 
 #endif // DISABLE_MEM_EVENT
 
@@ -115,6 +127,9 @@ void XenEventManager::cleanup()
 	        xc_.domainDebugControl( domain_, vcpu, XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_OFF );
 	*/
 
+	if ( xc_.monitorInguestPagefault )
+		xc_.monitorInguestPagefault( domain_, 0 );
+
 	/* Tear down domain xenaccess in Xen */
 	if ( ringPage_ )
 		munmap( ringPage_, XC::pageSize );
@@ -128,6 +143,11 @@ void XenEventManager::cleanup()
 
 	if ( evtchnOn_ )
 		xc_.evtchnClose( xce_ );
+
+	if ( handleEmulUnimplemented_ ) {
+		xc_.monitorSinglestep( domain_, 0 );
+		xc_.monitorEmulUnimplemented( domain_, 0 );
+	}
 #endif // DISABLE_MEM_EVENT
 
 	xs_.unwatch( "@releaseDomain", watchToken_ );
@@ -414,6 +434,7 @@ template <typename Request, typename Response, typename Ring> void XenEventManag
 			rsp.u.mem_access.flags = req.u.mem_access.flags;
 
 			driver_.enableCache( req.vcpu_id );
+			driver_.enableP2mIdxCache( req.vcpu_id, req.altp2m_idx );
 
 			if ( h )
 				h->runPreEvent();
@@ -428,9 +449,17 @@ template <typename Request, typename Response, typename Ring> void XenEventManag
 				case VM_EVENT_REASON_SINGLESTEP: {
 					StatsCounter counter2( "eventsSingleStep" );
 
-					rsp.reason = req.reason;
 					rsp.flags |= VM_EVENT_FLAG_ALTERNATE_P2M | VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
-					rsp.altp2m_idx = driver_.eptpIndex();
+
+					auto it = singlestepP2mIdx.find( req.vcpu_id );
+
+					if ( handleEmulUnimplemented_ && it != singlestepP2mIdx.end() )
+						rsp.altp2m_idx = it->second;
+					else {
+						logger << ERROR << "Could not find the saved altp2m index for vcpu "
+							<< req.vcpu_id << std::flush;
+						stop();
+					}
 
 					break;
 				}
@@ -476,6 +505,19 @@ template <typename Request, typename Response, typename Ring> void XenEventManag
 					handleDescriptorWrite( req, rsp, skip );
 					break;
 
+				case VM_EVENT_REASON_EMUL_UNIMPLEMENTED: {
+					StatsCounter counter2( "emulUnimplemented" );
+
+					if ( handleEmulUnimplemented_ && req.flags & VM_EVENT_FLAG_ALTERNATE_P2M ) {
+						rsp.flags = req.flags | VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
+						rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
+						rsp.altp2m_idx = 0;
+						singlestepP2mIdx[req.vcpu_id] = req.altp2m_idx;
+					}
+
+					break;
+				}
+
 				default:
 					// unknown reason code
 					break;
@@ -499,6 +541,7 @@ template <typename Request, typename Response, typename Ring> void XenEventManag
 			if ( h )
 				h->runPostEvent();
 
+			driver_.disableP2mIdxCache( req.vcpu_id );
 			driver_.disableCache();
 
 			/* Put the page info on the ring */
@@ -580,6 +623,7 @@ void XenEventManager::handleMemAccess( const Request &req, Response &rsp, bool &
 			                    VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
 			        rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
 			        rsp.altp2m_idx = 0;
+				singlestepP2mIdx[req.vcpu_id] = req.altp2m_idx;
 			}
 			*/
 			break;

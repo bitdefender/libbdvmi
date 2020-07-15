@@ -133,6 +133,7 @@ DECLARE_BDVMI_FUNCTION( altp2m_set_suppress_ve, int( uint32_t, uint16_t, xen_pfn
 DECLARE_BDVMI_FUNCTION( altp2m_get_suppress_ve, int( uint32_t, uint16_t, xen_pfn_t, bool * ) )
 DECLARE_BDVMI_FUNCTION( altp2m_set_vcpu_enable_notify, int( uint32_t, uint32_t, xen_pfn_t ) )
 DECLARE_BDVMI_FUNCTION( altp2m_set_vcpu_disable_notify, int( uint32_t, uint32_t ) )
+DECLARE_BDVMI_FUNCTION( altp2m_get_vcpu_p2m_idx, int( uint32_t, uint32_t, uint16_t * ) )
 DECLARE_BDVMI_FUNCTION( map_foreign_range, void *( uint32_t, int, int, unsigned long ))
 DECLARE_BDVMI_FUNCTION( get_mem_access, int( uint32_t, uint64_t, xenmem_access_t * ) )
 DECLARE_BDVMI_FUNCTION( hvm_inject_trap, int( uint32_t, int, uint8_t, uint8_t, uint32_t, uint8_t, uint64_t ) )
@@ -146,6 +147,8 @@ DECLARE_BDVMI_FUNCTION( monitor_mov_to_msr, int( uint32_t, uint32_t, bool, bool 
 DECLARE_BDVMI_FUNCTION( monitor_guest_request, int( uint32_t, bool, bool, bool ) )
 DECLARE_BDVMI_FUNCTION( monitor_write_ctrlreg, int( uint32_t, uint16_t, bool, bool, uint64_t, bool ) )
 DECLARE_BDVMI_FUNCTION( monitor_descriptor_access, int( uint32_t /* domain */, bool /* enable */ ) )
+DECLARE_BDVMI_FUNCTION( monitor_inguest_pagefault, int( uint32_t /* domain */, bool /* disable */ ) )
+DECLARE_BDVMI_FUNCTION( monitor_emul_unimplemented, int( uint32_t, bool ) )
 DECLARE_BDVMI_FUNCTION( vm_event_get_version, int() )
 
 using bdvmi_evtchn_open_fn_t             = xc_evtchn *( void );
@@ -203,6 +206,7 @@ public:
 	NCFunction<bdvmi_altp2m_get_suppress_ve_fn_t>         altp2mGetSuppressVE;
 	NCFunction<bdvmi_altp2m_set_vcpu_enable_notify_fn_t>  altp2mSetVcpuEnableNotify;
 	NCFunction<bdvmi_altp2m_set_vcpu_disable_notify_fn_t> altp2mSetVcpuDisableNotify;
+	NCFunction<bdvmi_altp2m_get_vcpu_p2m_idx_fn_t>        altp2mGetVcpuP2mIdx;
 
 	NCFunction<bdvmi_map_foreign_range_fn_t>  mapForeignRange;
 	NCFunction<bdvmi_get_mem_access_fn_t>     getMemAccess;
@@ -219,6 +223,8 @@ public:
 	NCFunction<bdvmi_monitor_guest_request_fn_t>       monitorGuestRequest;
 	NCFunction<bdvmi_monitor_write_ctrlreg_fn_t>       monitorWriteCtrlreg;
 	NCFunction<bdvmi_monitor_descriptor_access_fn_t>   monitorDescriptorAccess;
+	NCFunction<bdvmi_monitor_inguest_pagefault_fn_t>   monitorInguestPagefault;
+	NCFunction<bdvmi_monitor_emul_unimplemented_fn_t>  monitorEmulUnimplemented;
 
 	// XenServer-specific functions
 	NCFunction<bdvmi_domain_set_cores_per_socket_fn_t> domainSetCoresPerSocket;

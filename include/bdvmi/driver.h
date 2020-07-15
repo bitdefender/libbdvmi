@@ -17,11 +17,11 @@
 #define __BDVMIDRIVER_H_INCLUDED__
 
 #include <stdint.h>
+#include <boost/container/flat_map.hpp>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
-#include <unordered_map>
 
 #define PAGE_SHIFT 12
 #define PAGE_SIZE ( 1UL << PAGE_SHIFT )
@@ -45,6 +45,9 @@
 #define MSR_FS_BASE 0xc0000100        /* 64bit FS base */
 #define MSR_GS_BASE 0xc0000101        /* 64bit GS base */
 #define MSR_SHADOW_GS_BASE 0xc0000102 /* SwapGS GS shadow */
+
+// mapPhysMemToHost() flags
+#define PHYSMAP_NO_CACHE 0x00000001
 
 namespace bdvmi {
 
@@ -143,10 +146,10 @@ class Driver {
 public:
 	enum PageRestriction { PAGE_READ = 1 << 0, PAGE_WRITE = 1 << 1, PAGE_EXECUTE = 1 << 2 };
 
-	using ConvertibleMap     = std::unordered_map<uint64_t, bool>;
-	using ViewConvertibleMap = std::unordered_map<uint16_t, ConvertibleMap>;
-	using MemAccessMap       = std::unordered_map<uint64_t, uint8_t>;
-	using ViewMemAccessMap   = std::unordered_map<uint16_t, MemAccessMap>;
+	using ConvertibleMap     = boost::container::flat_map<uint64_t, bool>;
+	using ViewConvertibleMap = boost::container::flat_map<uint16_t, ConvertibleMap>;
+	using MemAccessMap       = boost::container::flat_map<uint64_t, uint8_t>;
+	using ViewMemAccessMap   = boost::container::flat_map<uint16_t, MemAccessMap>;
 
 public:
 	Driver( EventHandler *handler = nullptr ) : handler_{ handler }
@@ -199,8 +202,7 @@ public:
 
 	virtual bool unmapPhysMem( void *hostPtr ) = 0;
 
-	virtual bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress,
-	                               uint32_t errorCode ) = 0;
+	virtual bool injectTrap( unsigned short vcpu, uint8_t trapNumber, uint32_t errorCode, uint64_t cr2 ) = 0;
 
 	virtual bool setRepOptimizations( bool enable ) = 0;
 
@@ -216,7 +218,8 @@ public:
 
 	virtual bool getXSAVEArea( unsigned short vcpu, void *buffer, size_t bufSize ) = 0;
 
-	virtual bool maxGPFN( unsigned long long &gfn ) = 0;
+	// Get the maximum accessible guest frame number (_NOT_ virtual)
+	bool maxGPFN( unsigned long long &gfn );
 
 	virtual bool getEPTPageConvertible( unsigned short index, unsigned long long guestAddress,
 	                                    bool &convertible ) = 0;
@@ -233,7 +236,7 @@ public:
 
 	virtual bool disableVE( unsigned short vcpu ) = 0;
 
-	virtual unsigned short eptpIndex() const = 0;
+	virtual unsigned short eptpIndex( unsigned short vcpu) const = 0;
 
 	virtual bool update() = 0;
 
@@ -261,6 +264,8 @@ public:
 	// Does this driver support DTR events?
 	virtual bool dtrEventsSupported() const = 0;
 
+	virtual bool getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const = 0;
+
 private:
 	virtual void *mapGuestPageImpl( unsigned long long gfn ) = 0;
 
@@ -274,6 +279,8 @@ private:
 	virtual bool getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
 	                                    unsigned short view ) = 0;
 
+	virtual bool maxGPFNImpl( unsigned long long &gfn ) = 0;
+
 private:
 	EventHandler *     handler_{ nullptr };
 	ViewMemAccessMap   memAccessCache_;
@@ -281,6 +288,8 @@ private:
 	ViewConvertibleMap delayedConvertibleWrite_;
 	std::mutex         memAccessCacheMutex_;
 	std::mutex         convertibleCacheMutex_;
+	std::mutex         maxGPFNMutex_;
+	unsigned long long maxGPFN_{ 0 };
 
 	friend class PageCache;
 };

@@ -46,7 +46,7 @@ public:
 	void          reset();
 	void          driver( Driver *driver ) { driver_ = driver; }
 	MapReturnCode update( unsigned long gfn, void *&pointer );
-	void release( void *pointer );
+	bool release( void *pointer );
 
 private:
 	MapReturnCode insertNew( unsigned long gfn, void *&pointer );

@@ -140,12 +140,16 @@ private:
 	bool        firstReleaseWatch_{ true };
 	bool        firstControlCommand_{ true };
 	bool        foundEvents_{ false };
+	bool        handleEmulUnimplemented_{ false };
 	uint32_t    vmEventInterfaceVersion_{ 0 };
 	GuestState  guestState_{ RUNNING };
 
 	using msrs_values_map_t = std::unordered_map<uint32_t, uint64_t>;
 	using vcpu_msrs_t       = std::unordered_map<unsigned short, msrs_values_map_t>;
 	vcpu_msrs_t msrOldValueCache_;
+
+	using p2m_idx_values_map_t = std::unordered_map<uint32_t, uint16_t>;
+	p2m_idx_values_map_t singlestepP2mIdx;
 
 #ifdef DEBUG_DUMP_EVENTS
 	std::ofstream eventsFile_;

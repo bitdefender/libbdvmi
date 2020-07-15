@@ -89,19 +89,21 @@ MapReturnCode PageCache::update( unsigned long gfn, void *&pointer )
 	return MAP_SUCCESS;
 }
 
-void PageCache::release( void *pointer )
+bool PageCache::release( void *pointer )
 {
 	auto ri = reverseCache_.find( pointer );
 
 	if ( ri == reverseCache_.end() )
-		return; // nothing to do, not in cache (how did we get here though?)
+		return false; // nothing to do, not in cache
 
 	auto ci = cache_.find( ri->second );
 
 	if ( ci == cache_.end() )
-		return; // this should be impossible
+		return false;
 
 	--ci->second.inUse; // decrease refcount
+
+	return true;
 }
 
 MapReturnCode PageCache::insertNew( unsigned long gfn, void *&pointer )

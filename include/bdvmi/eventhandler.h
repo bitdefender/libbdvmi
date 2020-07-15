@@ -21,8 +21,8 @@
 namespace bdvmi {
 
 // Forward declaration
-class Registers;
-class EmulatorContext;
+struct Registers;
+struct EmulatorContext;
 
 enum HVAction { NONE, EMULATE_NOWRITE, SKIP_INSTRUCTION, ALLOW_VIRTUAL, EMULATE_SET_CTXT };
 
