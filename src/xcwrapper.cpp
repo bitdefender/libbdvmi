@@ -48,13 +48,13 @@ namespace bdvmi {
 
 struct xen_arch_domainconfig_extension {
 #define _EXT_XEN_X86_EMU_LAPIC 0
-#define EXT_XEN_X86_EMU_LAPIC ( 1U << _EXT_XEN_X86_EMU_LAPIC )
+#define EXT_XEN_X86_EMU_LAPIC  ( 1U << _EXT_XEN_X86_EMU_LAPIC )
 	uint32_t emulation_flags;
 };
 
 struct xen_domctl_getdomaininfo_extended {
 	domid_t                                domain; /* Also echoed in domctl.domain */
-	uint32_t                               flags;  /* XEN_DOMINF_* */
+	uint32_t                               flags; /* XEN_DOMINF_* */
 	uint64_aligned_t                       tot_pages;
 	uint64_aligned_t                       max_pages;
 	uint64_aligned_t                       outstanding_pages;
@@ -63,7 +63,7 @@ struct xen_domctl_getdomaininfo_extended {
 	uint64_aligned_t                       shared_info_frame; /* GMFN of shared_info struct */
 	uint64_aligned_t                       cpu_time;
 	uint32_t                               nr_online_vcpus; /* Number of VCPUs currently online. */
-	uint32_t                               max_vcpu_id;     /* Maximum VCPUID in use by this domain. */
+	uint32_t                               max_vcpu_id; /* Maximum VCPUID in use by this domain. */
 	uint32_t                               ssidref;
 	xen_domain_handle_t                    handle;
 	uint32_t                               cpupool;
@@ -200,7 +200,9 @@ Version XCFactory::getVersion()
 	return Version( verMajor, verMinor, verExtra );
 }
 
-XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
+XCFactory::XCFactory()
+    : version{ getVersion() }
+    , lib_{ "libxenctrl.so" }
 {
 	xen_capabilities_info_t xen_caps;
 	xen_domain_handle_t     xen_uuid;
@@ -289,7 +291,7 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 	monitorWriteCtrlreg        = LOOKUP_XC_FUNCTION_REQUIRED( monitor_write_ctrlreg );
 	monitorDescriptorAccess    = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_descriptor_access );
 	monitorInguestPagefault    = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_inguest_pagefault );
-	monitorEmulUnimplemented   = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_emul_unimplemented);
+	monitorEmulUnimplemented   = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_emul_unimplemented );
 	vmEventGetVersion          = LOOKUP_XC_FUNCTION_REQUIRED( vm_event_get_version );
 
 	evtchnOpen            = LOOKUP_BDVMI_FUNCTION_REQUIRED( evtchn_open );
@@ -375,13 +377,13 @@ template <> struct XCFactoryImpl<xc_domain_getinfolist_fn_t, xc_domain_getinfoli
 
 		return [fun]( xc_interface *xci, uint32_t domid, XenDomctlInfo &info ) {
 			xen_domctl_getdomaininfo_extended_safe info_hotfix = {};
-			int                                    ret         = fun( xci, domid, 1,
-			               reinterpret_cast<xen_domctl_getdomaininfo *>( &info_hotfix.extended ) );
+			int                                    ret =
+			    fun( xci, domid, 1, reinterpret_cast<xen_domctl_getdomaininfo *>( &info_hotfix.extended ) );
 
 			if ( ret != -1 ) {
 				// PVH domain, according to Andrew Cooper.
 				info.pvh =
-				        ( info_hotfix.extended.arch_config.emulation_flags == EXT_XEN_X86_EMU_LAPIC );
+				    ( info_hotfix.extended.arch_config.emulation_flags == EXT_XEN_X86_EMU_LAPIC );
 			}
 
 			return ret;
@@ -503,10 +505,9 @@ template <> struct XCFactoryImpl<xc_monitor_write_ctrlreg_fn_t, xc_monitor_write
 		if ( p->version < Version( 4, 10 ) ) {
 			using fn_t = int( xc_interface *, uint32_t, uint16_t, bool, bool, bool );
 			fn_t *fun  = p->lib_.lookup<fn_t, xc_monitor_write_ctrlreg_fn_name>();
-			return [fun]( xc_interface *xci, uint32_t domid, uint16_t index, bool enable, bool sync,
-			              uint64_t, bool onchangeonly ) {
-				return fun( xci, domid, index, enable, sync, onchangeonly );
-			};
+			return
+			    [fun]( xc_interface *xci, uint32_t domid, uint16_t index, bool enable, bool sync, uint64_t,
+			           bool onchangeonly ) { return fun( xci, domid, index, enable, sync, onchangeonly ); };
 		}
 
 		using fn_t = int( xc_interface *, uint32_t, uint16_t, bool, bool, uint64_t, bool );
@@ -602,79 +603,85 @@ const uint8_t       XC::shutdownPoweroff = SHUTDOWN_poweroff;
 using namespace std::placeholders;
 
 XC::XC()
-    : xci_{ XCFactory::instance().createInterface() }, version{ XCFactory::instance().version },
-      isXenServer{ XCFactory::instance().isXenServer }, caps{ XCFactory::instance().caps },
-      uuid{ XCFactory::instance().uuid }, domainPause{ std::bind( XCFactory::instance().domainPause, xci_.get(), _1 ) },
-      domainUnpause{ std::bind( XCFactory::instance().domainUnpause, xci_.get(), _1 ) },
-      domainShutdown{ std::bind( XCFactory::instance().domainShutdown, xci_.get(), _1, _2 ) },
-      domainGetInfo{ std::bind( XCFactory::instance().domainGetInfo, xci_.get(), _1, _2 ) },
-      domainGetInfoList{ std::bind( XCFactory::instance().domainGetInfoList, xci_.get(), _1, _2 ) },
-      domainMaximumGpfn{ std::bind( XCFactory::instance().domainMaximumGpfn, xci_.get(), _1, _2 ) },
-      domainDebugControl{ std::bind( XCFactory::instance().domainDebugControl, xci_.get(), _1, _2, _3 ) },
-      domainGetTscInfo{ std::bind( XCFactory::instance().domainGetTscInfo, xci_.get(), _1, _2, _3, _4, _5 ) },
-      domainSetAccessRequired{ std::bind( XCFactory::instance().domainSetAccessRequired, xci_.get(), _1, _2 ) },
-      domainHvmGetContext{ std::bind( XCFactory::instance().domainHvmGetContext, xci_.get(), _1, _2, _3 ) },
-      domainHvmGetContextPartial{ std::bind( XCFactory::instance().domainHvmGetContextPartial, xci_.get(), _1, _2, _3,
-	                                     _4, _5 ) },
-      setMemAccess{ std::bind( XCFactory::instance().setMemAccess, xci_.get(), _1, _2 ) },
-      altp2mGetMemAccess{ std::bind( XCFactory::instance().altp2mGetMemAccess, xci_.get(), _1, _2, _3, _4 ) },
-      altp2mSetMemAccess{ std::bind( XCFactory::instance().altp2mSetMemAccess, xci_.get(), _1, _2, _3 ) },
-      altp2mSetDomainState{ std::bind( XCFactory::instance().altp2mSetDomainState, xci_.get(), _1, _2 ) },
-      altp2mCreateView{ std::bind( XCFactory::instance().altp2mCreateView, xci_.get(), _1, _2, _3 ) },
-      altp2mDestroyView{ std::bind( XCFactory::instance().altp2mDestroyView, xci_.get(), _1, _2 ) },
-      altp2mSwitchToView{ std::bind( XCFactory::instance().altp2mSwitchToView, xci_.get(), _1, _2 ) },
-      altp2mSetVcpuEnableNotify{ std::bind( XCFactory::instance().altp2mSetVcpuEnableNotify, xci_.get(), _1, _2, _3 ) },
-      mapForeignRange{ std::bind( XCFactory::instance().mapForeignRange, xci_.get(), _1, _2, _3, _4 ) },
-      getMemAccess{ std::bind( XCFactory::instance().getMemAccess, xci_.get(), _1, _2, _3 ) },
-      hvmInjectTrap{ std::bind( XCFactory::instance().hvmInjectTrap, xci_.get(), _1, _2, _3, _4, _5, _6, _7 ) },
-      vcpuSetRegisters{ std::bind( XCFactory::instance().vcpuSetRegisters, xci_.get(), _1, _2, _3, _4 ) },
-      monitorEnable{ std::bind( XCFactory::instance().monitorEnable, xci_.get(), _1, _2 ) },
-      monitorDisable{ std::bind( XCFactory::instance().monitorDisable, xci_.get(), _1 ) },
-      monitorSinglestep{ std::bind( XCFactory::instance().monitorSinglestep, xci_.get(), _1, _2 ) },
-      monitorSoftwareBreakpoint{ std::bind( XCFactory::instance().monitorSoftwareBreakpoint, xci_.get(), _1, _2 ) },
-      monitorMovToMsr{ std::bind( XCFactory::instance().monitorMovToMsr, xci_.get(), _1, _2, _3, _4 ) },
-      monitorGuestRequest{ std::bind( XCFactory::instance().monitorGuestRequest, xci_.get(), _1, _2, _3, _4 ) },
-      monitorWriteCtrlreg{ std::bind( XCFactory::instance().monitorWriteCtrlreg, xci_.get(), _1, _2, _3, _4, _5, _6 ) },
-      vmEventGetVersion{ std::bind( XCFactory::instance().vmEventGetVersion, xci_.get() ) },
-      evtchnOpen{ XCFactory::instance().evtchnOpen }, evtchnClose{ XCFactory::instance().evtchnClose },
-      evtchnFd{ XCFactory::instance().evtchnFd }, evtchnPending{ XCFactory::instance().evtchnPending },
-      evtchnBindInterdomain{ XCFactory::instance().evtchnBindInterdomain },
-      evtchnUnbind{ XCFactory::instance().evtchnUnbind }, evtchnUnmask{ XCFactory::instance().evtchnUnmask },
-      evtchnNotify{ XCFactory::instance().evtchnNotify }
+    : xci_{ XCFactory::instance().createInterface() }
+    , version{ XCFactory::instance().version }
+    , isXenServer{ XCFactory::instance().isXenServer }
+    , caps{ XCFactory::instance().caps }
+    , uuid{ XCFactory::instance().uuid }
+    , domainPause{ std::bind( XCFactory::instance().domainPause, xci_.get(), _1 ) }
+    , domainUnpause{ std::bind( XCFactory::instance().domainUnpause, xci_.get(), _1 ) }
+    , domainShutdown{ std::bind( XCFactory::instance().domainShutdown, xci_.get(), _1, _2 ) }
+    , domainGetInfo{ std::bind( XCFactory::instance().domainGetInfo, xci_.get(), _1, _2 ) }
+    , domainGetInfoList{ std::bind( XCFactory::instance().domainGetInfoList, xci_.get(), _1, _2 ) }
+    , domainMaximumGpfn{ std::bind( XCFactory::instance().domainMaximumGpfn, xci_.get(), _1, _2 ) }
+    , domainDebugControl{ std::bind( XCFactory::instance().domainDebugControl, xci_.get(), _1, _2, _3 ) }
+    , domainGetTscInfo{ std::bind( XCFactory::instance().domainGetTscInfo, xci_.get(), _1, _2, _3, _4, _5 ) }
+    , domainSetAccessRequired{ std::bind( XCFactory::instance().domainSetAccessRequired, xci_.get(), _1, _2 ) }
+    , domainHvmGetContext{ std::bind( XCFactory::instance().domainHvmGetContext, xci_.get(), _1, _2, _3 ) }
+    , domainHvmGetContextPartial{ std::bind( XCFactory::instance().domainHvmGetContextPartial, xci_.get(), _1, _2, _3,
+	                                     _4, _5 ) }
+    , setMemAccess{ std::bind( XCFactory::instance().setMemAccess, xci_.get(), _1, _2 ) }
+    , altp2mGetMemAccess{ std::bind( XCFactory::instance().altp2mGetMemAccess, xci_.get(), _1, _2, _3, _4 ) }
+    , altp2mSetMemAccess{ std::bind( XCFactory::instance().altp2mSetMemAccess, xci_.get(), _1, _2, _3 ) }
+    , altp2mSetDomainState{ std::bind( XCFactory::instance().altp2mSetDomainState, xci_.get(), _1, _2 ) }
+    , altp2mCreateView{ std::bind( XCFactory::instance().altp2mCreateView, xci_.get(), _1, _2, _3 ) }
+    , altp2mDestroyView{ std::bind( XCFactory::instance().altp2mDestroyView, xci_.get(), _1, _2 ) }
+    , altp2mSwitchToView{ std::bind( XCFactory::instance().altp2mSwitchToView, xci_.get(), _1, _2 ) }
+    , altp2mSetVcpuEnableNotify{ std::bind( XCFactory::instance().altp2mSetVcpuEnableNotify, xci_.get(), _1, _2, _3 ) }
+    , mapForeignRange{ std::bind( XCFactory::instance().mapForeignRange, xci_.get(), _1, _2, _3, _4 ) }
+    , getMemAccess{ std::bind( XCFactory::instance().getMemAccess, xci_.get(), _1, _2, _3 ) }
+    , hvmInjectTrap{ std::bind( XCFactory::instance().hvmInjectTrap, xci_.get(), _1, _2, _3, _4, _5, _6, _7 ) }
+    , vcpuSetRegisters{ std::bind( XCFactory::instance().vcpuSetRegisters, xci_.get(), _1, _2, _3, _4 ) }
+    , monitorEnable{ std::bind( XCFactory::instance().monitorEnable, xci_.get(), _1, _2 ) }
+    , monitorDisable{ std::bind( XCFactory::instance().monitorDisable, xci_.get(), _1 ) }
+    , monitorSinglestep{ std::bind( XCFactory::instance().monitorSinglestep, xci_.get(), _1, _2 ) }
+    , monitorSoftwareBreakpoint{ std::bind( XCFactory::instance().monitorSoftwareBreakpoint, xci_.get(), _1, _2 ) }
+    , monitorMovToMsr{ std::bind( XCFactory::instance().monitorMovToMsr, xci_.get(), _1, _2, _3, _4 ) }
+    , monitorGuestRequest{ std::bind( XCFactory::instance().monitorGuestRequest, xci_.get(), _1, _2, _3, _4 ) }
+    , monitorWriteCtrlreg{ std::bind( XCFactory::instance().monitorWriteCtrlreg, xci_.get(), _1, _2, _3, _4, _5, _6 ) }
+    , vmEventGetVersion{ std::bind( XCFactory::instance().vmEventGetVersion, xci_.get() ) }
+    , evtchnOpen{ XCFactory::instance().evtchnOpen }
+    , evtchnClose{ XCFactory::instance().evtchnClose }
+    , evtchnFd{ XCFactory::instance().evtchnFd }
+    , evtchnPending{ XCFactory::instance().evtchnPending }
+    , evtchnBindInterdomain{ XCFactory::instance().evtchnBindInterdomain }
+    , evtchnUnbind{ XCFactory::instance().evtchnUnbind }
+    , evtchnUnmask{ XCFactory::instance().evtchnUnmask }
+    , evtchnNotify{ XCFactory::instance().evtchnNotify }
 {
 	if ( XCFactory::instance().monitorEmulateEachRep )
 		monitorEmulateEachRep = std::bind( XCFactory::instance().monitorEmulateEachRep, xci_.get(), _1, _2 );
 
 	if ( XCFactory::instance().monitorInguestPagefault )
-		monitorInguestPagefault = std::bind( XCFactory::instance().monitorInguestPagefault, xci_.get(), _1, _2 );
+		monitorInguestPagefault =
+		    std::bind( XCFactory::instance().monitorInguestPagefault, xci_.get(), _1, _2 );
 
 	if ( XCFactory::instance().domainSetCoresPerSocket )
 		domainSetCoresPerSocket =
-		        std::bind( XCFactory::instance().domainSetCoresPerSocket, xci_.get(), _1, _2 );
+		    std::bind( XCFactory::instance().domainSetCoresPerSocket, xci_.get(), _1, _2 );
 
 	if ( XCFactory::instance().monitorDescriptorAccess )
 		monitorDescriptorAccess =
-		        std::bind( XCFactory::instance().monitorDescriptorAccess, xci_.get(), _1, _2 );
+		    std::bind( XCFactory::instance().monitorDescriptorAccess, xci_.get(), _1, _2 );
 
 	if ( XCFactory::instance().altp2mSetVcpuDisableNotify )
 		altp2mSetVcpuDisableNotify =
-		        std::bind( XCFactory::instance().altp2mSetVcpuDisableNotify, xci_.get(), _1, _2 );
+		    std::bind( XCFactory::instance().altp2mSetVcpuDisableNotify, xci_.get(), _1, _2 );
 
 	if ( XCFactory::instance().altp2mSetSuppressVE )
 		altp2mSetSuppressVE =
-		        std::bind( XCFactory::instance().altp2mSetSuppressVE, xci_.get(), _1, _2, _3, _4 );
+		    std::bind( XCFactory::instance().altp2mSetSuppressVE, xci_.get(), _1, _2, _3, _4 );
 
 	if ( XCFactory::instance().altp2mGetSuppressVE )
 		altp2mGetSuppressVE =
-		        std::bind( XCFactory::instance().altp2mGetSuppressVE, xci_.get(), _1, _2, _3, _4 );
+		    std::bind( XCFactory::instance().altp2mGetSuppressVE, xci_.get(), _1, _2, _3, _4 );
 
 	if ( XCFactory::instance().altp2mGetVcpuP2mIdx )
-		altp2mGetVcpuP2mIdx =
-			std::bind( XCFactory::instance().altp2mGetVcpuP2mIdx , xci_.get(), _1, _2, _3 );
+		altp2mGetVcpuP2mIdx = std::bind( XCFactory::instance().altp2mGetVcpuP2mIdx, xci_.get(), _1, _2, _3 );
 
 	if ( XCFactory::instance().monitorEmulUnimplemented )
 		monitorEmulUnimplemented =
-		        std::bind( XCFactory::instance().monitorEmulUnimplemented, xci_.get(), _1, _2 );
+		    std::bind( XCFactory::instance().monitorEmulUnimplemented, xci_.get(), _1, _2 );
 }
 
 xenmem_access_t XC::xenMemAccess( uint8_t bdvmiBitmask )

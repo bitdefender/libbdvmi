@@ -33,19 +33,19 @@
 
 // #define DISABLE_PAGE_CACHE
 
-#define X86_CR0_PE 0x00000001    /* Enable Protected Mode    (RW) */
+#define X86_CR0_PE    0x00000001 /* Enable Protected Mode    (RW) */
 #define X86_EFLAGS_VM 0x00020000 /* Virtual Mode */
-#define _EFER_LMA 10             /* Long mode active (read-only) */
-#define EFER_LMA ( 1 << _EFER_LMA )
+#define _EFER_LMA     10 /* Long mode active (read-only) */
+#define EFER_LMA      ( 1 << _EFER_LMA )
 
 #define CS_AR_BYTES_L ( 1 << 9 )
 #define CS_AR_BYTES_D ( 1 << 10 )
 
 #define MTRR_PHYSMASK_VALID_BIT 11
-#define MTRR_PHYSMASK_SHIFT 12
+#define MTRR_PHYSMASK_SHIFT     12
 #define MTRR_PHYSBASE_TYPE_MASK 0xff
 
-#define TRAP_page_fault 14
+#define TRAP_page_fault            14
 #define X86_EVENTTYPE_HW_EXCEPTION 3 /* hardware exception */
 
 namespace bdvmi {
@@ -66,7 +66,9 @@ static bool check_page( void *addr )
 using namespace std::placeholders;
 
 XenDriver::XenDriver( domid_t domain, bool altp2m, bool hvmOnly )
-    : domain_{ domain }, pageCache_{ this }, altp2mState_{ xc_, domain, altp2m }
+    : domain_{ domain }
+    , pageCache_{ this }
+    , altp2mState_{ xc_, domain, altp2m }
 {
 	getMemAccess_ = [this]( unsigned long long gpa, xenmem_access_t *access, unsigned short ) {
 		return xc_.getMemAccess( domain_, gpa, access );
@@ -160,15 +162,15 @@ bool XenDriver::setPageProtectionImpl( const MemAccessMap &accessMap, unsigned s
 		return true;
 
 	if ( setMemAccess_( accessMap, view ) ) {
-		logger << WARNING << "XenDriver::setPageProtectionImpl() failed: " << strerror( errno ) << "; switching to one-page-at-a-time" << std::flush;
+		logger << WARNING << "XenDriver::setPageProtectionImpl() failed: " << strerror( errno )
+		       << "; switching to one-page-at-a-time" << std::flush;
 
 		auto it = accessMap.cbegin();
 		while ( it != accessMap.cend() ) {
 			MemAccessMap m( it, it + 1 );
 			if ( setMemAccess_( m, view ) )
-				logger << ERROR << "XenDriver::setPageProtectionImpl(" << std::hex
-				       << std::showbase << it->first << ", "
-				       << ( ( it->second & PAGE_READ ) ? "r" : "-" )
+				logger << ERROR << "XenDriver::setPageProtectionImpl(" << std::hex << std::showbase
+				       << it->first << ", " << ( ( it->second & PAGE_READ ) ? "r" : "-" )
 				       << ( ( it->second & PAGE_WRITE ) ? "w" : "-" )
 				       << ( ( it->second & PAGE_EXECUTE ) ? "x" : "-" )
 				       << ") failed: " << strerror( errno ) << std::flush;
@@ -225,7 +227,7 @@ bool XenDriver::getPageProtectionImpl( unsigned long long guestAddress, bool &re
 			read = write = execute = true;
 			break;
 
-		case XENMEM_access_rx2rw:      /* Page starts off as r-x, but automatically */
+		case XENMEM_access_rx2rw: /* Page starts off as r-x, but automatically */
 			read = execute = true; /* change to r-w on a write. */
 			break;
 
@@ -261,8 +263,9 @@ bool XenDriver::registers( unsigned short vcpu, Registers &regs ) const
 		EventHandler *h          = handler();
 		int           savedErrno = errno;
 
-		logger << (errno == ENODATA ? WARNING : ERROR) << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu
-		       << ") failed: " << strerror( errno ) << std::flush;
+		logger << ( errno == ENODATA ? WARNING : ERROR )
+		       << "xc_domain_hvm_getcontext_partial() (vcpu = " << vcpu << ") failed: " << strerror( errno )
+		       << std::flush;
 
 		if ( savedErrno == EINVAL && h )
 			h->handleFatalError();
@@ -483,8 +486,8 @@ void XenDriver::init( domid_t domain, bool hvmOnly )
 
 	maxGPFN_ = info.max_memkb >> ( XC::pageShift - 10 );
 
-	logger << DEBUG << "max_memkb: " << info.max_memkb << ", maxGPFN: " << std::hex << std::showbase
-		<< maxGPFN_ << std::dec << std::flush;
+	logger << DEBUG << "max_memkb: " << info.max_memkb << ", maxGPFN: " << std::hex << std::showbase << maxGPFN_
+	       << std::dec << std::flush;
 }
 
 domid_t XenDriver::getDomainId( const std::string &uuid )
@@ -523,8 +526,7 @@ std::string XenDriver::queryUuid( XS &xs, const std::string &domain )
 	return ret;
 }
 
-MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags,
-                                           void *&pointer )
+MapReturnCode XenDriver::mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags, void *&pointer )
 {
 	// one-page limit
 	if ( ( address & XC::pageMask ) != ( ( address + length - 1 ) & XC::pageMask ) )
@@ -586,8 +588,7 @@ bool XenDriver::injectTrap( unsigned short vcpu, uint8_t trapNumber, uint32_t er
 	// address space for "vcpu" here - otherwise things will likely
 	// explode. If something does explode here, check that those
 	// conditions hold HV-side.
-	if ( xc_.hvmInjectTrap( domain_, vcpu, trapNumber, X86_EVENTTYPE_HW_EXCEPTION, errorCode, 0,
-	                        cr2 ) != 0 ) {
+	if ( xc_.hvmInjectTrap( domain_, vcpu, trapNumber, X86_EVENTTYPE_HW_EXCEPTION, errorCode, 0, cr2 ) != 0 ) {
 		logger << ERROR << "xc_hvm_inject_trap() failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
@@ -1144,7 +1145,7 @@ uint32_t XenDriver::startTime()
 	if ( path && *path.get() != '\0' ) {
 		std::string path1 = std::string( path.get() ) + "/start_time";
 		std::string path2 =
-		        std::string( path.get() ) + "/domains/" + std::to_string( domain_ ) + "/create-time";
+		    std::string( path.get() ) + "/domains/" + std::to_string( domain_ ) + "/create-time";
 
 		size = 0;
 
@@ -1172,8 +1173,8 @@ void *XenDriver::mapGuestPageImpl( unsigned long long gfn )
 
 	void *ptr = xc_.mapForeignRange( domain_, XC::pageSize, PROT_READ | PROT_WRITE, gfn );
 	if ( !ptr && errno != EINVAL )
-		logger << WARNING << "xc_map_foreign_range() has failed on gfn " << std::hex << std::showbase
-		                  << gfn << ": " << strerror( errno ) << std::flush;
+		logger << WARNING << "xc_map_foreign_range() has failed on gfn " << std::hex << std::showbase << gfn
+		       << ": " << strerror( errno ) << std::flush;
 
 	return ptr;
 }
@@ -1182,7 +1183,7 @@ void XenDriver::unmapGuestPageImpl( void *hostPtr, unsigned long long gfn )
 {
 	if ( munmap( hostPtr, XC::pageSize ) < 0 )
 		logger << WARNING << "munmap() has failed on address " << hostPtr << " and gfn " << std::hex
-		                  << std::showbase << gfn << ": " << strerror( errno ) << std::flush;
+		       << std::showbase << gfn << ": " << strerror( errno ) << std::flush;
 }
 
 bool XenDriver::isMsrCached( uint64_t msr ) const

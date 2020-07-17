@@ -57,20 +57,20 @@ public:
 	void level( LogLevel level );
 
 private:
-	int_type overflow( int_type c ) override;
+	int_type        overflow( int_type c ) override;
 	std::streamsize xsputn( const char_type *s, std::streamsize n ) override;
-	int_type sync() override;
+	int_type        sync() override;
 
 private:
 	thread_local static std::unordered_map<long, Buffer> buffers_;
-	static std::atomic_long indexGenerator_;
-	long                    index_{ 0 };
-	LogHelperFunction       debug_;
-	LogHelperFunction       error_;
-	LogHelperFunction       info_;
-	LogHelperFunction       warning_;
-	std::atomic_bool        trace_{ false };
-	std::string             prefix_;
+	static std::atomic_long                              indexGenerator_;
+	long                                                 index_{ 0 };
+	LogHelperFunction                                    debug_;
+	LogHelperFunction                                    error_;
+	LogHelperFunction                                    info_;
+	LogHelperFunction                                    warning_;
+	std::atomic_bool                                     trace_{ false };
+	std::string                                          prefix_;
 
 	friend class LogStream;
 };
@@ -78,7 +78,8 @@ private:
 class LogStream : public std::ostream {
 
 public:
-	LogStream() : std::ostream{ &lsb_ }
+	LogStream()
+	    : std::ostream{ &lsb_ }
 	{
 	}
 

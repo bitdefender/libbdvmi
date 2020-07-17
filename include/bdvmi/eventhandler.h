@@ -67,9 +67,8 @@ public:
 	virtual void handleInterrupt( unsigned short vcpu, const Registers &regs, uint32_t vector, uint64_t errorCode,
 	                              uint64_t cr2 ) = 0;
 
-	virtual void handleDescriptorAccess( unsigned short vcpu, const Registers &regs,
-	                                     unsigned int flags, unsigned short &instructionLength,
-					     HVAction &action ) = 0;
+	virtual void handleDescriptorAccess( unsigned short vcpu, const Registers &regs, unsigned int flags,
+	                                     unsigned short &instructionLength, HVAction &action ) = 0;
 
 	// Notice that the connection to the guest has been terminated (if guestStillRunning is true
 	// then this has _not_ happened because the guest shut down or has been forcefully terminated).

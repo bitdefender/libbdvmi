@@ -29,7 +29,7 @@ public:
 	std::string getExtra() const;
 
 	friend std::ostream &operator<<( std::ostream &, const Version & );
-	friend int cmp( const Version &l, const Version &r );
+	friend int           cmp( const Version &l, const Version &r );
 
 private:
 	int         verMajor_;

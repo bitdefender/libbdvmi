@@ -44,7 +44,7 @@ bool Driver::setPageProtection( unsigned long long guestAddress, bool read, bool
 	std::lock_guard<std::mutex> guard( memAccessCacheMutex_ );
 
 	auto &&accessMap = memAccessCache_[view];
-	auto it = accessMap.find(gfn);
+	auto   it        = accessMap.find( gfn );
 
 	if ( it == accessMap.end() && read && write && execute )
 		return true;
@@ -116,8 +116,8 @@ void Driver::flushPageProtections()
 			setPageProtectionImpl( item.second, item.first );
 
 			// item.second.clear();
-			decltype(item.second) notUsingMemory;
-			std::swap(item.second, notUsingMemory);
+			decltype( item.second ) notUsingMemory;
+			std::swap( item.second, notUsingMemory );
 		}
 	}
 
@@ -129,9 +129,9 @@ void Driver::flushPageProtections()
 
 		setPageConvertibleImpl( item.second, item.first );
 
-		//item.second.clear();
-		decltype(item.second) notUsingMemory;
-		std::swap(item.second, notUsingMemory);
+		// item.second.clear();
+		decltype( item.second ) notUsingMemory;
+		std::swap( item.second, notUsingMemory );
 	}
 }
 
@@ -151,33 +151,33 @@ bool Driver::maxGPFN( unsigned long long &gfn )
 	if ( !maxGPFNImpl( maxGpfn ) )
 		return false;
 
-	//
-	// The code below resided in the introspection engine (introcore), but it was decided that
-	// it should be pushed down to the glue layer. While in its initial location the following
-	// explanation existed for it:
-	//
-	// although there is a GLUE_IFACE.QueryGuestInfo information class that returns this
-	// information, #IG_QUERY_INFO_CLASS_MAX_GPFN, in practice is has been observed to not
-	// always be accurate. Especially on XEN, for example, for guests with 1G of memory it
-	// would usually report back 4G of memory available, or for guests with more memory, the
-	// value would be slightly below the last page the guest could actually access. Since
-	// having this information is vital for some subsystems (such as the \#VE one), we try to
-	// figure it out ourselves. The algorithm is simple enough. Start with the page returned
-	// by #IG_QUERY_INFO_CLASS_MAX_GPFN query, and try to see if there is any memory available
-	// about it. If a physical page is mappable, we consider that it is available to the guest,
-	// since introcore should not be able to access memory that is not available to the guest.
-	// We do this search until a hole of 256 consecutive invalid pages is found. If during this
-	// search a valid page is found above the one returned by the hypervisor, we consider it to
-	// be the last physical page which the guest can access. If no page is found about the hint
-	// value, we may be in the case in which the hypervisor reported more than the guest has
-	// access to. While this is not as critical as the case in which the value is lower, it may
-	// still lead to unnecessary memory consumption. In this case we go below the page returned
-	// by the hypervisor until we find a page that we can map. The first page that can be
-	// mapped is treated as the last physical page the guest can access. Since this value will
-	// not change while introcore is running, it is cached inside the #gGuest variable and
-	// subsequent calls to this function will return the cached value, in order to avoid long
-	// pauses every time the query is done.
-	//
+		//
+		// The code below resided in the introspection engine (introcore), but it was decided that
+		// it should be pushed down to the glue layer. While in its initial location the following
+		// explanation existed for it:
+		//
+		// although there is a GLUE_IFACE.QueryGuestInfo information class that returns this
+		// information, #IG_QUERY_INFO_CLASS_MAX_GPFN, in practice is has been observed to not
+		// always be accurate. Especially on XEN, for example, for guests with 1G of memory it
+		// would usually report back 4G of memory available, or for guests with more memory, the
+		// value would be slightly below the last page the guest could actually access. Since
+		// having this information is vital for some subsystems (such as the \#VE one), we try to
+		// figure it out ourselves. The algorithm is simple enough. Start with the page returned
+		// by #IG_QUERY_INFO_CLASS_MAX_GPFN query, and try to see if there is any memory available
+		// about it. If a physical page is mappable, we consider that it is available to the guest,
+		// since introcore should not be able to access memory that is not available to the guest.
+		// We do this search until a hole of 256 consecutive invalid pages is found. If during this
+		// search a valid page is found above the one returned by the hypervisor, we consider it to
+		// be the last physical page which the guest can access. If no page is found about the hint
+		// value, we may be in the case in which the hypervisor reported more than the guest has
+		// access to. While this is not as critical as the case in which the value is lower, it may
+		// still lead to unnecessary memory consumption. In this case we go below the page returned
+		// by the hypervisor until we find a page that we can map. The first page that can be
+		// mapped is treated as the last physical page the guest can access. Since this value will
+		// not change while introcore is running, it is cached inside the #gGuest variable and
+		// subsequent calls to this function will return the cached value, in order to avoid long
+		// pauses every time the query is done.
+		//
 
 #define MAX_GPA_SEARCH_COUNT 256
 
@@ -185,7 +185,7 @@ bool Driver::maxGPFN( unsigned long long &gfn )
 
 	// A frame number is returned, so shift it to make it a GPA again.
 	unsigned long long lastOkGpa = maxGpfn << 12;
-	unsigned long long testGpa = lastOkGpa + PAGE_SIZE;
+	unsigned long long testGpa   = lastOkGpa + PAGE_SIZE;
 
 	// Sometimes max GPFN does not actually tell us what is the last GPA that the guest can
 	// access, so we try to find it by mapping some pages above it and see where we are
@@ -198,7 +198,7 @@ bool Driver::maxGPFN( unsigned long long &gfn )
 		if ( mapPhysMemToHost( testGpa, PAGE_SIZE, PHYSMAP_NO_CACHE, dummy ) == MAP_SUCCESS ) {
 			lastOkGpa = testGpa;
 			unmapPhysMem( dummy );
-			invalidCount = 0;
+			invalidCount    = 0;
 			atLeastOneValid = true;
 		} else
 			invalidCount++;

@@ -64,7 +64,7 @@ class XSFactory {
 public:
 	static XSFactory &instance();
 
-	DynamicLibFactory lib_;
+	DynamicLibFactory                                            lib_;
 	std::unique_ptr<xs_handle, void ( * )( struct xs_handle * )> createHandle() const;
 
 	template <typename T, const char *name> std::function<T> lookup( bool required = true ) const
@@ -95,15 +95,18 @@ XSFactory &XSFactory::instance()
 }
 
 XSFactory::XSFactory()
-    : lib_{ "libxenstore.so" }, readTimeout{ lookup<xs_read_timeout_fn_t, xs_read_timeout_fn_name>() },
-      write{ lookup<xs_write_fn_t, xs_write_fn_name>() },
-      directory{ lookup<xs_directory_fn_t, xs_directory_fn_name>() },
-      watch{ lookup<xs_watch_fn_t, xs_watch_fn_name>() }, unwatch{ lookup<xs_unwatch_fn_t, xs_unwatch_fn_name>() },
-      rm{ lookup<xs_rm_fn_t, xs_rm_fn_name>() }, fileno{ lookup<xs_fileno_fn_t, xs_fileno_fn_name>() },
-      readWatch{ lookup<xs_read_watch_fn_t, xs_read_watch_fn_name>() },
-      transactionStart{ lookup<xs_transaction_start_fn_t, xs_transaction_start_fn_name>() },
-      transactionEnd{ lookup<xs_transaction_end_fn_t, xs_transaction_end_fn_name>() },
-      isDomainIntroduced{ lookup<xs_is_domain_introduced_fn_t, xs_is_domain_introduced_fn_name>() }
+    : lib_{ "libxenstore.so" }
+    , readTimeout{ lookup<xs_read_timeout_fn_t, xs_read_timeout_fn_name>() }
+    , write{ lookup<xs_write_fn_t, xs_write_fn_name>() }
+    , directory{ lookup<xs_directory_fn_t, xs_directory_fn_name>() }
+    , watch{ lookup<xs_watch_fn_t, xs_watch_fn_name>() }
+    , unwatch{ lookup<xs_unwatch_fn_t, xs_unwatch_fn_name>() }
+    , rm{ lookup<xs_rm_fn_t, xs_rm_fn_name>() }
+    , fileno{ lookup<xs_fileno_fn_t, xs_fileno_fn_name>() }
+    , readWatch{ lookup<xs_read_watch_fn_t, xs_read_watch_fn_name>() }
+    , transactionStart{ lookup<xs_transaction_start_fn_t, xs_transaction_start_fn_name>() }
+    , transactionEnd{ lookup<xs_transaction_end_fn_t, xs_transaction_end_fn_name>() }
+    , isDomainIntroduced{ lookup<xs_is_domain_introduced_fn_t, xs_is_domain_introduced_fn_name>() }
 {
 }
 
@@ -176,19 +179,19 @@ template <> struct XSFactoryImpl<xs_directory_fn_t, xs_directory_fn_name> {
 	{
 		using fn_t = char **( struct xs_handle *, xs_transaction_t, const char *, unsigned int * );
 		fn_t *fn   = p->lib_.lookup<fn_t, xs_directory_fn_name>();
-		return [fn]( xs_handle *xsh, xs_transaction_t t, const std::string &path,
-		             std::vector<std::string> &dir ) {
-			unsigned int       count = 0;
-			CUniquePtr<char *> res( fn( xsh, t, path.c_str(), &count ) );
+		return
+		    [fn]( xs_handle *xsh, xs_transaction_t t, const std::string &path, std::vector<std::string> &dir ) {
+			    unsigned int       count = 0;
+			    CUniquePtr<char *> res( fn( xsh, t, path.c_str(), &count ) );
 
-			if ( !res )
-				return false;
+			    if ( !res )
+				    return false;
 
-			dir.reserve( count );
-			std::copy( res.get(), res.get() + count, std::back_inserter( dir ) );
+			    dir.reserve( count );
+			    std::copy( res.get(), res.get() + count, std::back_inserter( dir ) );
 
-			return true;
-		};
+			    return true;
+		    };
 	}
 };
 
@@ -252,18 +255,18 @@ const uint32_t         XS::watchToken = XS_WATCH_TOKEN;
 using namespace std::placeholders;
 
 XS::XS()
-    : xsh_{ XSFactory::instance().createHandle() },
-      readTimeout{ std::bind( XSFactory::instance().readTimeout, xsh_.get(), _1, _2, _3, _4 ) },
-      write{ std::bind( XSFactory::instance().write, xsh_.get(), _1, _2, _3, _4 ) },
-      directory{ std::bind( XSFactory::instance().directory, xsh_.get(), _1, _2, _3 ) },
-      watch{ std::bind( XSFactory::instance().watch, xsh_.get(), _1, _2 ) },
-      unwatch{ std::bind( XSFactory::instance().unwatch, xsh_.get(), _1, _2 ) },
-      rm{ std::bind( XSFactory::instance().rm, xsh_.get(), _1, _2 ) },
-      fileno{ std::bind( XSFactory::instance().fileno, xsh_.get() ) },
-      readWatch{ std::bind( XSFactory::instance().readWatch, xsh_.get(), _1 ) },
-      transactionStart{ std::bind( XSFactory::instance().transactionStart, xsh_.get() ) },
-      transactionEnd{ std::bind( XSFactory::instance().transactionEnd, xsh_.get(), _1, _2 ) },
-      isDomainIntroduced{ std::bind( XSFactory::instance().isDomainIntroduced, xsh_.get(), _1 ) }
+    : xsh_{ XSFactory::instance().createHandle() }
+    , readTimeout{ std::bind( XSFactory::instance().readTimeout, xsh_.get(), _1, _2, _3, _4 ) }
+    , write{ std::bind( XSFactory::instance().write, xsh_.get(), _1, _2, _3, _4 ) }
+    , directory{ std::bind( XSFactory::instance().directory, xsh_.get(), _1, _2, _3 ) }
+    , watch{ std::bind( XSFactory::instance().watch, xsh_.get(), _1, _2 ) }
+    , unwatch{ std::bind( XSFactory::instance().unwatch, xsh_.get(), _1, _2 ) }
+    , rm{ std::bind( XSFactory::instance().rm, xsh_.get(), _1, _2 ) }
+    , fileno{ std::bind( XSFactory::instance().fileno, xsh_.get() ) }
+    , readWatch{ std::bind( XSFactory::instance().readWatch, xsh_.get(), _1 ) }
+    , transactionStart{ std::bind( XSFactory::instance().transactionStart, xsh_.get() ) }
+    , transactionEnd{ std::bind( XSFactory::instance().transactionEnd, xsh_.get(), _1, _2 ) }
+    , isDomainIntroduced{ std::bind( XSFactory::instance().isDomainIntroduced, xsh_.get(), _1 ) }
 {
 }
 

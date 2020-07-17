@@ -25,7 +25,8 @@
 
 namespace bdvmi {
 
-PageCache::PageCache( Driver *driver ) : driver_{ driver }
+PageCache::PageCache( Driver *driver )
+    : driver_{ driver }
 {
 	std::ifstream in( "/proc/sys/kernel/osrelease" );
 
@@ -156,7 +157,7 @@ void PageCache::cleanup()
 	for ( auto &&item : cache_ )
 		if ( item.second.inUse < 1 )
 			timeOrderedGFNs.push_back(
-			        std::pair<unsigned long, unsigned long>( item.second.accessed, item.first ) );
+			    std::pair<unsigned long, unsigned long>( item.second.accessed, item.first ) );
 
 	if ( timeOrderedGFNs.empty() ) // All mapped pages are in use.
 		return;

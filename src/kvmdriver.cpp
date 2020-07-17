@@ -70,7 +70,8 @@ std::string accessString( int access )
 
 namespace bdvmi {
 
-KvmDriver::BatchMessages::BatchMessages( void *dom, KvmDriver *driver ) : driver_{ driver }
+KvmDriver::BatchMessages::BatchMessages( void *dom, KvmDriver *driver )
+    : driver_{ driver }
 {
 	grp_ = kvmi_batch_alloc( dom );
 	if ( !grp_ )
@@ -103,7 +104,9 @@ bool KvmDriver::BatchMessages::addPauseVcpu( unsigned short vcpu ) const
 	return true;
 }
 
-KvmDriver::KvmDriver( const std::string &domain, bool useVE ) : domain_{ domain }, pageCache_{ this }
+KvmDriver::KvmDriver( const std::string &domain, bool useVE )
+    : domain_{ domain }
+    , pageCache_{ this }
 {
 	domCtx_ = KvmDomainWatcher::domainContext( domain );
 	if ( !domCtx_ )
@@ -132,9 +135,9 @@ KvmDriver::KvmDriver( const std::string &domain, bool useVE ) : domain_{ domain 
 			kvmi_ve_support( domCtx_, &veSupported_ );
 
 		if ( veSupported_ ) {
-			if ( !getNextAvailableView ( untrustedView_ ) )
-				throw std::runtime_error( std:: string( "All EPT views are in use for this domain: " ) +
-						domain );
+			if ( !getNextAvailableView( untrustedView_ ) )
+				throw std::runtime_error( std::string( "All EPT views are in use for this domain: " ) +
+				                          domain );
 		}
 	}
 }
@@ -249,8 +252,8 @@ bool KvmDriver::setPageProtectionImpl( const MemAccessMap &accessMap, unsigned s
 
 	for ( auto &&item : accessMap ) {
 		unsigned char acc = ( ( item.second & PAGE_READ ) ? KVMI_PAGE_ACCESS_R : 0 ) |
-		                    ( ( item.second & PAGE_WRITE ) ? KVMI_PAGE_ACCESS_W : 0 ) |
-		                    ( ( item.second & PAGE_EXECUTE ) ? KVMI_PAGE_ACCESS_X : 0 );
+		    ( ( item.second & PAGE_WRITE ) ? KVMI_PAGE_ACCESS_W : 0 ) |
+		    ( ( item.second & PAGE_EXECUTE ) ? KVMI_PAGE_ACCESS_X : 0 );
 		access.push_back( acc );
 		gpa.push_back( gfn_to_gpa( item.first ) );
 	}
@@ -457,8 +460,7 @@ bool KvmDriver::setRegisters( unsigned short vcpu, const Registers &regs, bool /
 	return !err;
 }
 
-MapReturnCode KvmDriver::mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags,
-                                           void *&pointer )
+MapReturnCode KvmDriver::mapPhysMemToHost( unsigned long long address, size_t length, uint32_t flags, void *&pointer )
 {
 	if ( ( address & PAGE_MASK ) != ( ( address + length - 1 ) & PAGE_MASK ) ) {
 		logger << ERROR << "invalid parameter" << std::flush;
@@ -508,7 +510,7 @@ bool KvmDriver::unmapPhysMem( void *hostPtr )
 #ifdef DISABLE_PAGE_CACHE
 #ifdef DISABLE_PAGE_MAP
 	unsigned long long gfn =
-	        *( ( unsigned long long * )map + ( PAGE_SIZE + PAGE_SIZE / 2 ) / sizeof( unsigned long long ) );
+	    *( ( unsigned long long * )map + ( PAGE_SIZE + PAGE_SIZE / 2 ) / sizeof( unsigned long long ) );
 
 	unmapGuestPageImpl( map, gfn );
 #else
@@ -668,9 +670,9 @@ size_t KvmDriver::setPageCacheLimit( size_t limit )
 }
 
 #define DEFAULT_XSAVE_SIZE XSAVE_HDR_SIZE + XSAVE_HDR_OFFSET
-#define XSAVE_HDR_SIZE 64
-#define XSAVE_HDR_OFFSET FXSAVE_SIZE
-#define FXSAVE_SIZE 512
+#define XSAVE_HDR_SIZE     64
+#define XSAVE_HDR_OFFSET   FXSAVE_SIZE
+#define FXSAVE_SIZE        512
 
 bool KvmDriver::getXSAVESize( unsigned short vcpu, size_t &size )
 {
@@ -784,8 +786,7 @@ bool KvmDriver::isPendingVcpusCacheEnabled( unsigned short vcpu ) const
 
 	std::lock_guard<std::mutex> lock( pendingCache_.mutex_ );
 
-	if ( pendingCache_.pendingVcpus_.find( vcpu ) ==
-			pendingCache_.pendingVcpus_.end() )
+	if ( pendingCache_.pendingVcpus_.find( vcpu ) == pendingCache_.pendingVcpus_.end() )
 		return false;
 
 	return true;
@@ -823,9 +824,8 @@ void *KvmDriver::mapGuestPageImpl( unsigned long long gfn )
 	}
 
 	if ( addr == MAP_FAILED ) {
-		if ( errno != EFAULT )  {
-			logger << WARNING << "kvmi_map_physical_page() for gfn " << std::hex
-			       << std::showbase << gfn
+		if ( errno != EFAULT ) {
+			logger << WARNING << "kvmi_map_physical_page() for gfn " << std::hex << std::showbase << gfn
 			       << " has failed: " << strerror( errno ) << std::flush;
 		}
 		return nullptr;
@@ -1444,31 +1444,30 @@ bool KvmDriver::getNextAvailableView( unsigned short &index )
 	for ( view = 1; view < guestVisibleEPTviews_.size(); view++ )
 		if ( !guestVisibleEPTviews_[view] ) {
 			guestVisibleEPTviews_[view] = true;
-			index = view;
+			index                       = view;
 			return true;
 		}
 
 	return false;
 }
 
-bool KvmDriver::controlEPTview( unsigned short vcpu, unsigned short view, bool visible)
+bool KvmDriver::controlEPTview( unsigned short vcpu, unsigned short view, bool visible )
 {
 	int rc;
 
 	{
 		StatsCounter counter( "kvmi_control_ept_view" );
-		rc = kvmi_control_ept_view( domCtx_, vcpu, view, visible);
+		rc = kvmi_control_ept_view( domCtx_, vcpu, view, visible );
 	}
 
 	if ( rc ) {
 		logger << ERROR << "kvmi_control_ept_view(vcpu=" << vcpu << ", view=" << view
-		       << ", visible=" << std::boolalpha << visible << ") failed: "
-		       << strerror( errno ) << std::flush;
+		       << ", visible=" << std::boolalpha << visible << ") failed: " << strerror( errno ) << std::flush;
 		return false;
 	}
 
-	logger << TRACE << "kvmi_control_ept_view(vcpu=" << vcpu << ", view=" << view
-	       << ", visible=" << std::boolalpha << visible << ") => 0" << std::flush;
+	logger << TRACE << "kvmi_control_ept_view(vcpu=" << vcpu << ", view=" << view << ", visible=" << std::boolalpha
+	       << visible << ") => 0" << std::flush;
 
 	return true;
 }
@@ -1493,7 +1492,7 @@ bool KvmDriver::createEPT( unsigned short &index )
 
 bool KvmDriver::destroyEPT( unsigned short index )
 {
-	unsigned short	vcpu;
+	unsigned short vcpu;
 
 	// Avoid destroying default EPT view #0
 	if ( !index || index >= guestVisibleEPTviews_.size() )
@@ -1505,7 +1504,7 @@ bool KvmDriver::destroyEPT( unsigned short index )
 	// Restrict the view for all vCPUs
 
 	for ( vcpu = 0; vcpu < vcpuCount_; vcpu++ )
-		if ( !controlEPTview( vcpu, index, false) )
+		if ( !controlEPTview( vcpu, index, false ) )
 			return false;
 
 	guestVisibleEPTviews_[index] = false;
@@ -1528,8 +1527,7 @@ bool KvmDriver::vcpuSwitchView( unsigned short vcpu, unsigned short index )
 		return false;
 	}
 
-	logger << TRACE << "kvmi_switch_ept_view(vcpu=" << vcpu << ", index=" << index
-	       << ") succeeded" << std::flush;
+	logger << TRACE << "kvmi_switch_ept_view(vcpu=" << vcpu << ", index=" << index << ") succeeded" << std::flush;
 
 	return true;
 }

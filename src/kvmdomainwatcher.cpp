@@ -176,7 +176,7 @@ bool KvmDomainWatcher::queueConnection( const std::string &name, void *domCtx )
 		dom = &found->second;
 		if ( !dom->resetSafely() ) {
 			logger << WARNING << "[" << name
-				<< "] Drop the connection. The child didn't finish the old one." << std::flush;
+			       << "] Drop the connection. The child didn't finish the old one." << std::flush;
 			lock.unlock();
 			// Allow diedHandler() to park() the domain
 			sleep( 1 ); // :D
@@ -192,8 +192,7 @@ bool KvmDomainWatcher::queueConnection( const std::string &name, void *domCtx )
 	return true;
 }
 
-void KvmDomainWatcher::handleDomainEvent( const struct kvmi_dom_event *ev,
-                                          const std::string &uuid ) const
+void KvmDomainWatcher::handleDomainEvent( const struct kvmi_dom_event *ev, const std::string &uuid ) const
 {
 	uint32_t eventID = ev->event.common.event;
 
@@ -273,14 +272,14 @@ bool KvmDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 			dom.park();
 		} else if ( dom.isParked() ) {
 			CUniquePtr<kvmi_dom_event> evPtr;
-			kvmi_dom_event *                                      ev = nullptr;
-			bool                                                  gotEvent = dom.getEvent( &ev );
-			int                                                   err      = errno;
+			kvmi_dom_event *           ev       = nullptr;
+			bool                       gotEvent = dom.getEvent( &ev );
+			int                        err      = errno;
 
 			evPtr.reset( ev );
 
 			if ( gotEvent && uuid == ownUuid_ ) {
-				logger << WARNING << "Detected pause, suspend, shutdown or migrate."  << std::flush;
+				logger << WARNING << "Detected pause, suspend, shutdown or migrate." << std::flush;
 				handleDomainEvent( ev, uuid );
 				suspendIntrospectorDomain_ = true;
 				stop();
@@ -293,12 +292,12 @@ bool KvmDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 				dom.forgetWithShutdown();
 			} else if ( err && uuid == ownUuid_ ) {
 				logger << WARNING << "[" << uuid << "] Mother ship connection lost: (" << err << ") "
-					<< strerror( err ) << std::flush;
+				       << strerror( err ) << std::flush;
 
 				dom.forgetWithShutdown();
 			} else if ( err ) {
 				logger << WARNING << "[" << uuid << "] Connection closed (" << err << ") "
-					<< strerror( err ) << std::flush;
+				       << strerror( err ) << std::flush;
 				domains.emplace_back( uuid, DomainInfo::STATE_FINISHED );
 
 				dom.forgetWithShutdown();

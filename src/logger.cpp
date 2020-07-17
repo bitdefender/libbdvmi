@@ -31,7 +31,7 @@ std::ostream &setLevel( std::ostream &os, bdvmi::LogStreambuf::LogLevel level )
 namespace bdvmi {
 
 thread_local std::unordered_map<long, LogStreambuf::Buffer> LogStreambuf::buffers_;
-std::atomic_long LogStreambuf::indexGenerator_{ 0 };
+std::atomic_long                                            LogStreambuf::indexGenerator_{ 0 };
 
 LogStreambuf::LogStreambuf()
 {

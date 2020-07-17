@@ -43,16 +43,19 @@ public:
 public:
 	size_t setLimit( size_t limit );
 
-	void          reset();
-	void          driver( Driver *driver ) { driver_ = driver; }
+	void reset();
+	void driver( Driver *driver )
+	{
+		driver_ = driver;
+	}
 	MapReturnCode update( unsigned long gfn, void *&pointer );
-	bool release( void *pointer );
+	bool          release( void *pointer );
 
 private:
 	MapReturnCode insertNew( unsigned long gfn, void *&pointer );
 	void          cleanup();
 	unsigned long generateIndex() const;
-	bool checkPages( void *addr, size_t size ) const;
+	bool          checkPages( void *addr, size_t size ) const;
 
 public: // no copying around
 	PageCache( const PageCache & ) = delete;
