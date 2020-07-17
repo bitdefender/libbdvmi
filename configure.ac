@@ -58,4 +58,4 @@ AC_CHECK_TYPE(uint16_t, unsigned short)
 AC_CHECK_TYPE(uint32_t, unsigned int)
 AC_CHECK_TYPE(uint64_t, unsigned long long)
 
-AC_OUTPUT(Makefile src/Makefile include/Makefile examples/Makefile)
+AC_OUTPUT(Makefile src/Makefile include/Makefile examples/Makefile libbdvmi.pc)
