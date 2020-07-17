@@ -1,0 +1,9 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+
+Name: @PACKAGE_NAME@
+Description: A C++ library for virtual machine introspection
+Version: @PACKAGE_VERSION@
+Libs: -L${libdir} -lbdvmi
+Cflags: -I${includedir}
