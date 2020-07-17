@@ -45,9 +45,9 @@ AC_CHECK_LIB(xenctrl, xc_interface_open, , AC_MSG_ERROR([Could not find libxenct
 AC_CHECK_LIB(xenstore, xs_open, , AC_MSG_ERROR([Could not find libxenstore!]))
 
 if test "x$enable_kvmi" = "xyes" ; then
-    PKG_CHECK_MODULES([KVMI], [libkvmi])
-    PKG_CHECK_MODULES([UUID], [uuid])
-    PKG_CHECK_MODULES([CRYPTO], [libcrypto])
+    PKG_CHECK_MODULES(KVMI, [libkvmi])
+    PKG_CHECK_MODULES(UUID, [uuid])
+    PKG_CHECK_MODULES(CRYPTO, [libcrypto])
 fi
 
 AM_CONDITIONAL([KVMI], [test "x$enable_kvmi" = "xyes"])
