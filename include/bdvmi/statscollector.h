@@ -50,9 +50,9 @@ public:
 	}
 
 private:
-	std::atomic_bool enable_{ false };
+	std::atomic_bool                                                                         enable_{ false };
 	std::unordered_map<std::string, std::pair<unsigned long, std::chrono::duration<double>>> stats_;
-	mutable std::mutex statsMutex_;
+	mutable std::mutex                                                                       statsMutex_;
 };
 
 #ifndef BDVMI_DISABLE_STATS
@@ -60,7 +60,8 @@ private:
 class StatsCounter {
 
 public:
-	explicit StatsCounter( std::string st ) : name_{ std::move( st ) }
+	explicit StatsCounter( std::string st )
+	    : name_{ std::move( st ) }
 	{
 		if ( !StatsCollector::instance().enabled() )
 			return;

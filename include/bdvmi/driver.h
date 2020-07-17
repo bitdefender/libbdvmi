@@ -24,26 +24,26 @@
 #include <string>
 
 #define PAGE_SHIFT 12
-#define PAGE_SIZE ( 1UL << PAGE_SHIFT )
-#define PAGE_MASK ( ~( PAGE_SIZE - 1 ) )
+#define PAGE_SIZE  ( 1UL << PAGE_SHIFT )
+#define PAGE_MASK  ( ~( PAGE_SIZE - 1 ) )
 
 #define gpa_to_gfn( pa ) ( ( unsigned long )( ( pa ) >> PAGE_SHIFT ) )
 #define gfn_to_gpa( fn ) ( ( unsigned long )( ( fn ) << PAGE_SHIFT ) )
 
 /* From xen/include/asm-x86/msr-index.h */
-#define MSR_IA32_SYSENTER_CS 0x00000174
+#define MSR_IA32_SYSENTER_CS  0x00000174
 #define MSR_IA32_SYSENTER_ESP 0x00000175
 #define MSR_IA32_SYSENTER_EIP 0x00000176
-#define MSR_IA32_CR_PAT 0x00000277
-#define MSR_IA32_MISC_ENABLE 0x000001a0
-#define MSR_IA32_MC0_CTL 0x00000400
+#define MSR_IA32_CR_PAT       0x00000277
+#define MSR_IA32_MISC_ENABLE  0x000001a0
+#define MSR_IA32_MC0_CTL      0x00000400
 
-#define MSR_EFER 0xc0000080           /* extended feature register */
-#define MSR_STAR 0xc0000081           /* legacy mode SYSCALL target */
-#define MSR_LSTAR 0xc0000082          /* long mode SYSCALL target */
-#define MSR_CSTAR 0xc0000083          /* compat mode SYSCALL target */
-#define MSR_FS_BASE 0xc0000100        /* 64bit FS base */
-#define MSR_GS_BASE 0xc0000101        /* 64bit GS base */
+#define MSR_EFER           0xc0000080 /* extended feature register */
+#define MSR_STAR           0xc0000081 /* legacy mode SYSCALL target */
+#define MSR_LSTAR          0xc0000082 /* long mode SYSCALL target */
+#define MSR_CSTAR          0xc0000083 /* compat mode SYSCALL target */
+#define MSR_FS_BASE        0xc0000100 /* 64bit FS base */
+#define MSR_GS_BASE        0xc0000101 /* 64bit GS base */
 #define MSR_SHADOW_GS_BASE 0xc0000102 /* SwapGS GS shadow */
 
 // mapPhysMemToHost() flags
@@ -152,7 +152,8 @@ public:
 	using ViewMemAccessMap   = boost::container::flat_map<uint16_t, MemAccessMap>;
 
 public:
-	Driver( EventHandler *handler = nullptr ) : handler_{ handler }
+	Driver( EventHandler *handler = nullptr )
+	    : handler_{ handler }
 	{
 	}
 
@@ -236,7 +237,7 @@ public:
 
 	virtual bool disableVE( unsigned short vcpu ) = 0;
 
-	virtual unsigned short eptpIndex( unsigned short vcpu) const = 0;
+	virtual unsigned short eptpIndex( unsigned short vcpu ) const = 0;
 
 	virtual bool update() = 0;
 

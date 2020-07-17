@@ -103,7 +103,8 @@ bool KvmEventManager::initVcpuEvents()
 }
 
 KvmEventManager::KvmEventManager( KvmDriver &driver, sig_atomic_t &sigStop )
-    : EventManager{ sigStop }, driver_{ driver }
+    : EventManager{ sigStop }
+    , driver_{ driver }
 {
 	if ( !initVMEvents() )
 		throw std::runtime_error( "[KVM events] could not init the VM events" );
@@ -209,7 +210,7 @@ void KvmEventManager::traceEventMessage( const struct kvmi_dom_event &msg )
 			bool        write   = !!( msg.event.page_fault.access & KVMI_PAGE_ACCESS_W );
 			bool        execute = !!( msg.event.page_fault.access & KVMI_PAGE_ACCESS_X );
 			std::string access =
-			        std::string( ( read ? "r" : "-" ) ) + ( write ? "w" : "-" ) + ( execute ? "x" : "-" );
+			    std::string( ( read ? "r" : "-" ) ) + ( write ? "w" : "-" ) + ( execute ? "x" : "-" );
 
 			logger << " gpa " << HEXLOG( msg.event.page_fault.gpa ) << " gva "
 			       << HEXLOG( msg.event.page_fault.gva ) << " access " << access.c_str() << " rip "
@@ -356,7 +357,7 @@ void KvmEventManager::waitForEvents()
 
 				StatsCounter counter( "eventsBreakpoint" );
 				handled =
-				        h->handleBreakpoint( msg->event.common.vcpu, regs, msg->event.breakpoint.gpa );
+				    h->handleBreakpoint( msg->event.common.vcpu, regs, msg->event.breakpoint.gpa );
 
 				if ( handled )
 					// the breakpoint has been handled by the introspector

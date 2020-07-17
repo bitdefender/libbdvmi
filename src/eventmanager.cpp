@@ -18,7 +18,7 @@
 namespace bdvmi {
 
 EventManager::EventManager( sig_atomic_t &sigStop )
-	: sigStop_{ sigStop }
+    : sigStop_{ sigStop }
 {
 }
 
@@ -84,7 +84,7 @@ bool EventManager::enableXSETBVEvents()
 		return true;
 
 	xsetbvEnabled_ = enableXSETBVEventsImpl();
-	
+
 	return xsetbvEnabled_;
 }
 
@@ -107,7 +107,7 @@ bool EventManager::enableBreakpointEvents()
 
 	return breakpointEnabled_;
 }
-	
+
 bool EventManager::disableBreakpointEvents()
 {
 	if ( !breakpointEnabled_ )

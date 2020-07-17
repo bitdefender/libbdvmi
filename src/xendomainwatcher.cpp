@@ -28,7 +28,9 @@ namespace bdvmi {
 constexpr char   XenDomainWatcher::TEMPORARY_UUID_SUFFIX[];
 constexpr size_t XenDomainWatcher::PREFIX_SIZE;
 
-XenDomainWatcher::XenDomainWatcher( sig_atomic_t &sigStop ) : DomainWatcher{ sigStop }, ownUuid_{ xc_.uuid }
+XenDomainWatcher::XenDomainWatcher( sig_atomic_t &sigStop )
+    : DomainWatcher{ sigStop }
+    , ownUuid_{ xc_.uuid }
 {
 	if ( !xs_.watch( "@introduceDomain", introduceToken_ ) )
 		throw std::runtime_error( "xs_watch() failed" );
@@ -107,8 +109,8 @@ bool XenDomainWatcher::getNewDomains( std::list<DomainInfo> &domains )
 						// wait for that.
 						if ( guestUuid.length() > 24 &&
 						     guestUuid.substr( 24 ) == TEMPORARY_UUID_SUFFIX ) {
-							path = "/local/domain/" + std::to_string( dominfo.domid ) +
-							       "/vm";
+							path =
+							    "/local/domain/" + std::to_string( dominfo.domid ) + "/vm";
 							xs_.watch( path, "uuid" + std::to_string( dominfo.domid ) );
 						} else {
 							processNewDomain( domains, dominfo.domid, guestUuid,
@@ -167,8 +169,8 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 			ret = getNewDomains( domains );
 
 		if ( releaseToken_ == vec[XS::watchToken] ) {
-			auto i = domIds_.begin();
-			decltype(i) j;
+			auto          i = domIds_.begin();
+			decltype( i ) j;
 
 			while ( i != domIds_.end() ) {
 				j = i;
@@ -190,7 +192,7 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 				firstControlCommand_ = false;
 			else {
 				CUniquePtr<char> value(
-				        xs_.readTimeout( XS::xbtNull, vec[XS::watchPath], nullptr, 1 ) );
+				    xs_.readTimeout( XS::xbtNull, vec[XS::watchPath], nullptr, 1 ) );
 
 				if ( value ) {
 					std::string tmp = value.get();
@@ -242,21 +244,21 @@ bool XenDomainWatcher::waitForDomainsOrTimeout( std::list<DomainInfo> &domains, 
 						if ( uuid.length() > 24 &&
 						     uuid.substr( 24 ) != TEMPORARY_UUID_SUFFIX ) {
 							std::string path =
-							        "/local/domain/" + std::to_string( domid ) + "/vm";
+							    "/local/domain/" + std::to_string( domid ) + "/vm";
 
 							xs_.unwatch( path, "uuid" + std::to_string( domid ) );
 
 							path = "/local/domain/" + std::to_string( domid ) + "/name";
 
 							CUniquePtr<char> name(
-							        xs_.readTimeout( XS::xbtNull, path, nullptr, 1 ) );
+							    xs_.readTimeout( XS::xbtNull, path, nullptr, 1 ) );
 
 							if ( name ) {
 								processNewDomain( domains, domid, uuid, name.get() );
 								ret = true;
 							} else
 								xs_.watch( "/local/domain/" + std::to_string( domid ) +
-								                   "/name",
+								               "/name",
 								           "dom" + std::to_string( domid ) );
 						}
 					}

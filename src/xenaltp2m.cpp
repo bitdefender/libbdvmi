@@ -28,7 +28,8 @@
 namespace bdvmi {
 
 XenAltp2mDomainState::XenAltp2mDomainState( XC &xc, uint32_t domain, bool enable )
-    : xc_{ xc }, domain_{ domain }
+    : xc_{ xc }
+    , domain_{ domain }
 {
 	if ( !enable )
 		return;
@@ -128,10 +129,10 @@ int XenAltp2mDomainState::getCurrentView( uint32_t vcpu, uint16_t &view ) const
 		return 0;
 	}
 
-	if ( isCacheEnabled( vcpu, view )  )
+	if ( isCacheEnabled( vcpu, view ) )
 		return 0;
 
-	if ( !xc_.altp2mGetVcpuP2mIdx  ) {
+	if ( !xc_.altp2mGetVcpuP2mIdx ) {
 		view = currentView_;
 		return 0;
 	}
@@ -196,10 +197,10 @@ void XenAltp2mDomainState::disableCache( uint32_t vcpu )
 	viewCache_.views_.erase( vcpu );
 }
 
-bool XenAltp2mDomainState::isCacheEnabled( uint32_t vcpu, uint16_t& view ) const
+bool XenAltp2mDomainState::isCacheEnabled( uint32_t vcpu, uint16_t &view ) const
 {
 	std::lock_guard<std::mutex> lock( viewCache_.mutex_ );
-	auto it = viewCache_.views_.find( vcpu );
+	auto                        it = viewCache_.views_.find( vcpu );
 
 	if ( it == viewCache_.views_.end() )
 		return false;

@@ -31,23 +31,25 @@
 #include <stdexcept>
 
 #define GLA_VALID( x ) ( x.u.mem_access.flags & MEM_ACCESS_GLA_VALID )
-#define ACCESS_R( x ) ( x.u.mem_access.flags & MEM_ACCESS_R )
-#define ACCESS_W( x ) ( x.u.mem_access.flags & MEM_ACCESS_W )
-#define ACCESS_X( x ) ( x.u.mem_access.flags & MEM_ACCESS_X )
+#define ACCESS_R( x )  ( x.u.mem_access.flags & MEM_ACCESS_R )
+#define ACCESS_W( x )  ( x.u.mem_access.flags & MEM_ACCESS_W )
+#define ACCESS_X( x )  ( x.u.mem_access.flags & MEM_ACCESS_X )
 
 #ifndef HVMOP_TRAP_sw_exc
 #define HVMOP_TRAP_sw_exc 6
 #endif
 
 /* From xen/include/asm-x86/x86-defns.h */
-#define X86_CR4_PGE 0x00000080 /* enable global pages */
+#define X86_CR4_PGE   0x00000080 /* enable global pages */
 #define X86_TRAP_INT3 3
 
 namespace bdvmi {
 
 XenEventManager::XenEventManager( XenDriver &driver, sig_atomic_t &sigStop )
-    : EventManager{ sigStop }, driver_{ driver }, xc_{ driver_.nativeHandle() },
-      domain_{ static_cast<domid_t>( driver.id() ) }
+    : EventManager{ sigStop }
+    , driver_{ driver }
+    , xc_{ driver_.nativeHandle() }
+    , domain_{ static_cast<domid_t>( driver.id() ) }
 {
 	initXenStore();
 
@@ -55,7 +57,7 @@ XenEventManager::XenEventManager( XenDriver &driver, sig_atomic_t &sigStop )
 	if ( driver_.altp2mEnabled() ) {
 		if ( xc_.monitorSinglestep( domain_, 1 ) < 0 ) {
 			cleanup();
-		        throw std::runtime_error( "Could not enable singlestep monitoring" );
+			throw std::runtime_error( "Could not enable singlestep monitoring" );
 		}
 
 		if ( xc_.monitorEmulUnimplemented && xc_.monitorEmulUnimplemented( domain_, 1 ) == 0 )
@@ -63,7 +65,7 @@ XenEventManager::XenEventManager( XenDriver &driver, sig_atomic_t &sigStop )
 		else {
 			xc_.monitorSinglestep( domain_, 0 );
 			cleanup();
-		        throw std::runtime_error( "Could not enable unimplemented instruction monitoring" );
+			throw std::runtime_error( "Could not enable unimplemented instruction monitoring" );
 		}
 	}
 
@@ -156,14 +158,14 @@ void XenEventManager::cleanup()
 	xs_.rm( XS::xbtNull, controlXenStorePath_ );
 
 	switch ( vmEventInterfaceVersion_ ) {
-	case 5:
-		delete static_cast<vm_event_v5_back_ring_t *>( backRing_ );
-		break;
-	case 4:
-		delete static_cast<vm_event_v4_back_ring_t *>( backRing_ );
-		break;
-	default:
-		delete static_cast<vm_event_v3_back_ring_t *>( backRing_ );
+		case 5:
+			delete static_cast<vm_event_v5_back_ring_t *>( backRing_ );
+			break;
+		case 4:
+			delete static_cast<vm_event_v4_back_ring_t *>( backRing_ );
+			break;
+		default:
+			delete static_cast<vm_event_v3_back_ring_t *>( backRing_ );
 	}
 }
 
@@ -380,14 +382,15 @@ template <typename Response> void XenEventManager::setRegisters( Response &rsp )
 void XenEventManager::waitForEvents()
 {
 	switch ( vmEventInterfaceVersion_ ) {
-	case 5:
-		return waitForEventsByVMEventVersion<vm_event_request_v5_t, vm_event_response_v5_t,
-		                                     vm_event_v5_back_ring_t>();
-	case 4:
-		return waitForEventsByVMEventVersion<vm_event_request_v4_t, vm_event_response_v4_t,
-		                                     vm_event_v4_back_ring_t>();
-	default:
-		return waitForEventsByVMEventVersion<vm_event_request_v3_t, vm_event_response_v3_t, vm_event_v3_back_ring_t>();
+		case 5:
+			return waitForEventsByVMEventVersion<vm_event_request_v5_t, vm_event_response_v5_t,
+			                                     vm_event_v5_back_ring_t>();
+		case 4:
+			return waitForEventsByVMEventVersion<vm_event_request_v4_t, vm_event_response_v4_t,
+			                                     vm_event_v4_back_ring_t>();
+		default:
+			return waitForEventsByVMEventVersion<vm_event_request_v3_t, vm_event_response_v3_t,
+			                                     vm_event_v3_back_ring_t>();
 	}
 }
 
@@ -457,7 +460,7 @@ template <typename Request, typename Response, typename Ring> void XenEventManag
 						rsp.altp2m_idx = it->second;
 					else {
 						logger << ERROR << "Could not find the saved altp2m index for vcpu "
-							<< req.vcpu_id << std::flush;
+						       << req.vcpu_id << std::flush;
 						stop();
 					}
 
@@ -511,7 +514,7 @@ template <typename Request, typename Response, typename Ring> void XenEventManag
 					if ( handleEmulUnimplemented_ && req.flags & VM_EVENT_FLAG_ALTERNATE_P2M ) {
 						rsp.flags = req.flags | VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
 						rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
-						rsp.altp2m_idx = 0;
+						rsp.altp2m_idx                = 0;
 						singlestepP2mIdx[req.vcpu_id] = req.altp2m_idx;
 					}
 
@@ -587,8 +590,8 @@ void XenEventManager::handleMemAccess( const Request &req, Response &rsp, bool &
 
 	uint64_t gpa = ( req.u.mem_access.gfn << XC::pageShift ) + req.u.mem_access.offset;
 
-	h->handlePageFault( req.vcpu_id, regs, gpa, gva, read, write, execute, gptFault, action,
-	                    emulatorCtx, instructionSize );
+	h->handlePageFault( req.vcpu_id, regs, gpa, gva, read, write, execute, gptFault, action, emulatorCtx,
+	                    instructionSize );
 
 	switch ( action ) {
 		case EMULATE_NOWRITE:
@@ -623,7 +626,7 @@ void XenEventManager::handleMemAccess( const Request &req, Response &rsp, bool &
 			                    VM_EVENT_FLAG_TOGGLE_SINGLESTEP;
 			        rsp.flags &= ~VM_EVENT_FLAG_EMULATE;
 			        rsp.altp2m_idx = 0;
-				singlestepP2mIdx[req.vcpu_id] = req.altp2m_idx;
+			        singlestepP2mIdx[req.vcpu_id] = req.altp2m_idx;
 			}
 			*/
 			break;
@@ -761,7 +764,7 @@ template <typename Request> void XenEventManager::handleBreakpoint( const Reques
 	EventHandler *h        = handler();
 	bool          reinject = ( h != nullptr );
 	uint32_t      insn_len = ( req.version < 0x00000002 ? 1 : req.u.software_breakpoint.insn_length );
-	uint8_t type = ( req.version < 0x00000002 ? HVMOP_TRAP_sw_exc : req.u.software_breakpoint.type );
+	uint8_t       type     = ( req.version < 0x00000002 ? HVMOP_TRAP_sw_exc : req.u.software_breakpoint.type );
 
 	StatsCounter counter( "eventsBreakPoint" );
 
@@ -848,15 +851,15 @@ void XenEventManager::initEventChannels()
 
 #define private rprivate
 	switch ( vmEventInterfaceVersion_ ) {
-	case 5:
-		INIT_EVENT_CHANNEL( 5 );
-		break;
-	case 4:
-		INIT_EVENT_CHANNEL( 4 );
-		break;
-	default:
-		INIT_EVENT_CHANNEL( 3 );
-		break;
+		case 5:
+			INIT_EVENT_CHANNEL( 5 );
+			break;
+		case 4:
+			INIT_EVENT_CHANNEL( 4 );
+			break;
+		default:
+			INIT_EVENT_CHANNEL( 3 );
+			break;
 	}
 #undef private
 }
@@ -871,15 +874,15 @@ void XenEventManager::initMemAccess()
 		switch ( errno ) {
 			case EBUSY:
 				throw std::runtime_error(
-				        "[Xen events] the domain is either already connected "
-				        "with a monitoring application, or such an application crashed after "
-				        "connecting to it" );
+				    "[Xen events] the domain is either already connected "
+				    "with a monitoring application, or such an application crashed after "
+				    "connecting to it" );
 			case ENODEV:
 				throw std::runtime_error( "[Xen events] EPT not supported for this guest" );
 			default:
 				throw std::runtime_error(
-				        std::string( "[Xen events] error initialising shared page: " ) +
-				        strerror( errno ) );
+				    std::string( "[Xen events] error initialising shared page: " ) +
+				    strerror( errno ) );
 		}
 	}
 
@@ -934,8 +937,9 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 					std::vector<std::string> dir;
 
 					if ( !xs_.directory( th, vec[XS::watchPath], dir ) ) {
-						guestState_ = ( xs_.isDomainIntroduced( domain_ ) != 0 ) ?
-							RUNNING : SHUTDOWN_IN_PROGRESS;
+						guestState_ = ( xs_.isDomainIntroduced( domain_ ) != 0 )
+						    ? RUNNING
+						    : SHUTDOWN_IN_PROGRESS;
 						stop();
 					}
 
@@ -947,7 +951,7 @@ int XenEventManager::waitForEventOrTimeout( int ms )
 					firstControlCommand_ = false;
 				} else {
 					CUniquePtr<char> value(
-					        xs_.readTimeout( XS::xbtNull, vec[XS::watchPath], nullptr, 1 ) );
+					    xs_.readTimeout( XS::xbtNull, vec[XS::watchPath], nullptr, 1 ) );
 
 					if ( value ) {
 						std::string tmp = value.get();

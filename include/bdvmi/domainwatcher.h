@@ -33,7 +33,9 @@ protected:
 		enum State { STATE_NEW, STATE_FINISHED };
 
 		DomainInfo( const std::string &u, State s = STATE_NEW, const std::string &n = "unknown" )
-		    : uuid( u ), state( s ), name( n )
+		    : uuid( u )
+		    , state( s )
+		    , name( n )
 		{
 		}
 

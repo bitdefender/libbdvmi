@@ -18,7 +18,9 @@
 namespace bdvmi {
 
 Version::Version( int verMajor, int verMinor, const std::string &verExtra )
-    : verMajor_{ verMajor }, verMinor_{ verMinor }, verExtra_{ verExtra }
+    : verMajor_{ verMajor }
+    , verMinor_{ verMinor }
+    , verExtra_{ verExtra }
 {
 }
 

@@ -18,7 +18,8 @@
 
 namespace bdvmi {
 
-DomainWatcher::DomainWatcher( sig_atomic_t &sigStop ) : sigStop_{ sigStop }
+DomainWatcher::DomainWatcher( sig_atomic_t &sigStop )
+    : sigStop_{ sigStop }
 {
 }
 
@@ -39,15 +40,15 @@ void DomainWatcher::waitForDomains()
 
 			if ( waitForDomainsOrTimeout( domains, ms ) ) {
 
-				for ( auto && domain : domains ) {
+				for ( auto &&domain : domains ) {
 					if ( handler_ ) {
 						switch ( domain.state ) {
-						case DomainInfo::STATE_NEW:
-							handler_->handleDomainFound( domain.uuid, domain.name );
-							break;
-						case DomainInfo::STATE_FINISHED:
-							handler_->handleDomainFinished( domain.uuid );
-							break;
+							case DomainInfo::STATE_NEW:
+								handler_->handleDomainFound( domain.uuid, domain.name );
+								break;
+							case DomainInfo::STATE_FINISHED:
+								handler_->handleDomainFinished( domain.uuid );
+								break;
 						}
 					}
 				}
