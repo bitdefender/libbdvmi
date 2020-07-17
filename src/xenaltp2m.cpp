@@ -13,8 +13,11 @@
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library.
 
+// #define BDVMI_DISABLE_STATS
+
 #include "bdvmi/driver.h"
 #include "bdvmi/logger.h"
+#include "bdvmi/statscollector.h"
 #include "xenaltp2m.h"
 #include "xcwrapper.h"
 #include <algorithm>
@@ -44,6 +47,9 @@ XenAltp2mDomainState::XenAltp2mDomainState( XC &xc, uint32_t domain, bool enable
 		logger << WARNING << "[ALTP2M] could not enable altp2m on domain: " << strerror( errno ) << std::flush;
 		return;
 	}
+
+	if ( !xc_.altp2mGetVcpuP2mIdx )
+		logger << WARNING << "[ALTP2M] no p2m_idx() function present" << std::flush;
 
 	enabled_ = true;
 }
@@ -96,18 +102,42 @@ int XenAltp2mDomainState::switchToView( uint16_t view )
 	if ( !enabled_ )
 		return -ENOTSUP;
 
-	if ( view == currentView_ )
+	uint16_t currentView;
+
+	int rc = getCurrentView( 0, currentView );
+	if ( rc < 0 )
+		return rc;
+
+	if ( view == currentView )
 		return 0;
 
 	if ( view && views_.find( view ) == views_.end() )
 		return -EINVAL;
 
-	int rc;
-
-	if ( ( rc = xc_.altp2mSwitchToView( domain_, view ) ) >= 0 )
+	if ( ( rc = xc_.altp2mSwitchToView( domain_, view ) ) >= 0 ) {
 		currentView_ = view;
+	}
 
 	return rc;
+}
+
+int XenAltp2mDomainState::getCurrentView( uint32_t vcpu, uint16_t &view ) const
+{
+	if ( !enabled_ ) {
+		view = 0;
+		return 0;
+	}
+
+	if ( isCacheEnabled( vcpu, view )  )
+		return 0;
+
+	if ( !xc_.altp2mGetVcpuP2mIdx  ) {
+		view = currentView_;
+		return 0;
+	}
+
+	StatsCounter counter( "altp2mGetVcpuP2mIdx" );
+	return xc_.altp2mGetVcpuP2mIdx( domain_, vcpu, &view );
 }
 
 int XenAltp2mDomainState::setVEInfoPage( uint32_t vcpu, xen_pfn_t gpa )
@@ -146,6 +176,37 @@ int XenAltp2mDomainState::getSuppressVE( uint16_t view, xen_pfn_t gfn, bool &sve
 		return -EINVAL;
 
 	return xc_.altp2mGetSuppressVE( domain_, view, gfn, &sve );
+}
+
+void XenAltp2mDomainState::enableCache( uint32_t vcpu, uint16_t idx )
+{
+	if ( !enabled_ )
+		return;
+
+	std::lock_guard<std::mutex> lock( viewCache_.mutex_ );
+	viewCache_.views_[vcpu] = idx;
+}
+
+void XenAltp2mDomainState::disableCache( uint32_t vcpu )
+{
+	if ( !enabled_ )
+		return;
+
+	std::lock_guard<std::mutex> lock( viewCache_.mutex_ );
+	viewCache_.views_.erase( vcpu );
+}
+
+bool XenAltp2mDomainState::isCacheEnabled( uint32_t vcpu, uint16_t& view ) const
+{
+	std::lock_guard<std::mutex> lock( viewCache_.mutex_ );
+	auto it = viewCache_.views_.find( vcpu );
+
+	if ( it == viewCache_.views_.end() )
+		return false;
+
+	view = it->second;
+
+	return true;
 }
 
 } // namespace bdvmi

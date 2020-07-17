@@ -71,7 +71,7 @@ public:
 
 	bool unmapPhysMem( void *hostPtr ) override;
 
-	bool requestPageFault( int vcpu, uint64_t addressSpace, uint64_t virtualAddress, uint32_t errorCode ) override;
+	bool injectTrap( unsigned short vcpu, uint8_t trapNumber, uint32_t errorCode, uint64_t cr2 ) override;
 
 	bool setRepOptimizations( bool enable ) override;
 
@@ -87,8 +87,6 @@ public:
 
 	bool getXSAVEArea( unsigned short vcpu, void *buffer, size_t bufSize ) override;
 
-	bool maxGPFN( unsigned long long &gfn ) override;
-
 	bool getEPTPageConvertible( unsigned short index, unsigned long long address, bool &convertible ) override;
 
 	bool createEPT( unsigned short &index ) override;
@@ -101,10 +99,7 @@ public:
 
 	bool disableVE( unsigned short vcpu ) override;
 
-	unsigned short eptpIndex() const override
-	{
-		return altp2mViewId_;
-	}
+	unsigned short eptpIndex( unsigned short vcpu ) const override;
 
 	bool update() override;
 
@@ -121,6 +116,10 @@ public:
 	void enableCache( unsigned short vcpu ) override;
 
 	void disableCache() override;
+
+	void enableP2mIdxCache( unsigned short vcpu, unsigned short idx );
+
+	void disableP2mIdxCache( unsigned short vcpu );
 
 	uint32_t startTime() override;
 
@@ -148,6 +147,8 @@ public:
 	{
 		return !!xc_.monitorDescriptorAccess && xc_.version >= Version( 4, 11 );
 	}
+
+	bool getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const override;
 
 private:
 	void *mapGuestPageImpl( unsigned long long gfn ) override;
@@ -179,6 +180,11 @@ public:
 
 	void clearInjection( unsigned short vcpu );
 
+	bool altp2mEnabled() const
+	{
+		return !!altp2mState_;
+	}
+
 public:
 	// Don't allow copying for these objects (class has xci_)
 	XenDriver( const XenDriver & ) = delete;
@@ -193,8 +199,6 @@ private:
 
 	bool getXSAVEInfo( unsigned short vcpu, struct hvm_hw_cpu_xsave &xsaveInfo ) const;
 
-	bool getXCR0( unsigned short vcpu, uint64_t &xcr0 ) const;
-
 	bool getPAT( unsigned short vcpu, uint64_t &pat ) const;
 
 	bool isVarMtrrOverlapped( const struct hvm_hw_mtrr &hwMtrr ) const;
@@ -205,13 +209,14 @@ private:
 
 	static std::string queryUuid( XS &xs, const std::string &domain );
 
+	bool maxGPFNImpl( unsigned long long &gfn ) override;
+
 private:
 	mutable XS        xs_;
 	mutable XC        xc_;
 	domid_t           domain_;
 	PageCache         pageCache_;
 	std::string       uuid_;
-	uint16_t          altp2mViewId_{ 0 };
 	mutable RegsCache regsCache_;
 	bool              update_{ false };
 	DelayedWrite      delayedWrite_;

@@ -37,7 +37,7 @@ public:
 public:
 	std::unique_ptr<DomainWatcher> domainWatcher( sig_atomic_t &sigStop );
 
-	std::unique_ptr<Driver> driver( const std::string &domain, bool altp2m, bool watchableOnly = true );
+	std::unique_ptr<Driver> driver( const std::string &domain, bool altp2m, bool hvmOnly = true );
 
 	std::unique_ptr<EventManager> eventManager( Driver &driver, sig_atomic_t &sigStop );
 

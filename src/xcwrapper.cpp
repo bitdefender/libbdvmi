@@ -143,6 +143,7 @@ public:
 	std::function<xc_altp2m_get_suppress_ve_fn_t>         altp2mGetSuppressVE;
 	std::function<xc_altp2m_set_vcpu_enable_notify_fn_t>  altp2mSetVcpuEnableNotify;
 	std::function<xc_altp2m_set_vcpu_disable_notify_fn_t> altp2mSetVcpuDisableNotify;
+	std::function<xc_altp2m_get_vcpu_p2m_idx_fn_t>        altp2mGetVcpuP2mIdx;
 	std::function<xc_map_foreign_range_fn_t>              mapForeignRange;
 	std::function<xc_get_mem_access_fn_t>                 getMemAccess;
 	std::function<xc_hvm_inject_trap_fn_t>                hvmInjectTrap;
@@ -156,6 +157,8 @@ public:
 	std::function<xc_monitor_guest_request_fn_t>          monitorGuestRequest;
 	std::function<xc_monitor_write_ctrlreg_fn_t>          monitorWriteCtrlreg;
 	std::function<xc_monitor_descriptor_access_fn_t>      monitorDescriptorAccess;
+	std::function<xc_monitor_inguest_pagefault_fn_t>      monitorInguestPagefault;
+	std::function<xc_monitor_emul_unimplemented_fn_t>     monitorEmulUnimplemented;
 
 	std::function<xc_vm_event_get_version_fn_t> vmEventGetVersion;
 
@@ -271,6 +274,7 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 	altp2mGetSuppressVE        = LOOKUP_XC_FUNCTION_OPTIONAL( altp2m_get_suppress_ve );
 	altp2mSetVcpuEnableNotify  = LOOKUP_XC_FUNCTION_REQUIRED( altp2m_set_vcpu_enable_notify );
 	altp2mSetVcpuDisableNotify = LOOKUP_XC_FUNCTION_OPTIONAL( altp2m_set_vcpu_disable_notify );
+	altp2mGetVcpuP2mIdx        = LOOKUP_XC_FUNCTION_OPTIONAL( altp2m_get_vcpu_p2m_idx );
 	mapForeignRange            = LOOKUP_XC_FUNCTION_REQUIRED( map_foreign_range );
 	getMemAccess               = LOOKUP_XC_FUNCTION_REQUIRED( get_mem_access );
 	hvmInjectTrap              = LOOKUP_XC_FUNCTION_REQUIRED( hvm_inject_trap );
@@ -284,6 +288,8 @@ XCFactory::XCFactory() : version{ getVersion() }, lib_{ "libxenctrl.so" }
 	monitorGuestRequest        = LOOKUP_XC_FUNCTION_REQUIRED( monitor_guest_request );
 	monitorWriteCtrlreg        = LOOKUP_XC_FUNCTION_REQUIRED( monitor_write_ctrlreg );
 	monitorDescriptorAccess    = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_descriptor_access );
+	monitorInguestPagefault    = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_inguest_pagefault );
+	monitorEmulUnimplemented   = LOOKUP_XC_FUNCTION_OPTIONAL( monitor_emul_unimplemented);
 	vmEventGetVersion          = LOOKUP_XC_FUNCTION_REQUIRED( vm_event_get_version );
 
 	evtchnOpen            = LOOKUP_BDVMI_FUNCTION_REQUIRED( evtchn_open );
@@ -639,6 +645,9 @@ XC::XC()
 	if ( XCFactory::instance().monitorEmulateEachRep )
 		monitorEmulateEachRep = std::bind( XCFactory::instance().monitorEmulateEachRep, xci_.get(), _1, _2 );
 
+	if ( XCFactory::instance().monitorInguestPagefault )
+		monitorInguestPagefault = std::bind( XCFactory::instance().monitorInguestPagefault, xci_.get(), _1, _2 );
+
 	if ( XCFactory::instance().domainSetCoresPerSocket )
 		domainSetCoresPerSocket =
 		        std::bind( XCFactory::instance().domainSetCoresPerSocket, xci_.get(), _1, _2 );
@@ -658,6 +667,14 @@ XC::XC()
 	if ( XCFactory::instance().altp2mGetSuppressVE )
 		altp2mGetSuppressVE =
 		        std::bind( XCFactory::instance().altp2mGetSuppressVE, xci_.get(), _1, _2, _3, _4 );
+
+	if ( XCFactory::instance().altp2mGetVcpuP2mIdx )
+		altp2mGetVcpuP2mIdx =
+			std::bind( XCFactory::instance().altp2mGetVcpuP2mIdx , xci_.get(), _1, _2, _3 );
+
+	if ( XCFactory::instance().monitorEmulUnimplemented )
+		monitorEmulUnimplemented =
+		        std::bind( XCFactory::instance().monitorEmulUnimplemented, xci_.get(), _1, _2 );
 }
 
 xenmem_access_t XC::xenMemAccess( uint8_t bdvmiBitmask )

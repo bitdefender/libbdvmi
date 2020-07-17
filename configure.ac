@@ -1,4 +1,4 @@
-AC_INIT([libbdvmi], [0.1])
+AC_INIT([libbdvmi], [1.0])
 
 LT_INIT
 
@@ -10,16 +10,20 @@ CXXFLAGS="$CXXFLAGS -W -Wall -DXC_WANT_COMPAT_MAP_FOREIGN_API -DXC_WANT_COMPAT_E
 XENDIR=""
 
 AC_ARG_ENABLE(debug,
-    [  --enable-debug          compile with gdb debug information], 
+    [  --enable-debug          compile with gdb debug information],
     CXXFLAGS="$CXXFLAGS -g")
 
 AC_ARG_ENABLE(optimize,
-    [  --enable-optimize       optimize compiled code (-O2)], 
+    [  --enable-optimize       optimize compiled code (-O2)],
     CXXFLAGS="$CXXFLAGS -O2")
 
 AC_ARG_WITH(xen,
-    [  --with-xen              specify Xen includes and libraries parent directory], 
+    [  --with-xen              specify Xen includes and libraries parent directory],
     XENDIR="$withval")
+
+AC_ARG_ENABLE(kvmi,
+    [  --enable-kvmi           enable KVMI support],
+    CPPFLAGS="$CPPFLAGS -DUSE_KVMI")
 
 if test -n $XENDIR ; then
     CFLAGS="-I$/XENDIR/include $CFLAGS"
@@ -31,11 +35,22 @@ AM_INIT_AUTOMAKE
 AC_PROG_CXX
 AC_PROG_INSTALL
 AC_PROG_LIBTOOL
+AC_LANG(C++)
 
 AX_CXX_COMPILE_STDCXX([14], [ext])
 
+AC_CHECK_HEADERS([boost/container/flat_map.hpp], [], [AC_MSG_ERROR(bailing out)])
+
 AC_CHECK_LIB(xenctrl, xc_interface_open, , AC_MSG_ERROR([Could not find libxenctrl!]))
 AC_CHECK_LIB(xenstore, xs_open, , AC_MSG_ERROR([Could not find libxenstore!]))
+
+if test "x$enable_kvmi" = "xyes" ; then
+    PKG_CHECK_MODULES([KVMI], [libkvmi])
+    PKG_CHECK_MODULES([UUID], [uuid])
+    PKG_CHECK_MODULES([CRYPTO], [libcrypto])
+fi
+
+AM_CONDITIONAL([KVMI], [test "x$enable_kvmi" = "xyes"])
 
 AC_CHECK_TYPE(int32_t, int)
 AC_CHECK_TYPE(int16_t, short)

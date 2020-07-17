@@ -21,7 +21,9 @@
 #endif
 
 #include <cstdint>
+#include <mutex>
 #include <set>
+#include <unordered_map>
 
 #include "xcwrapper.h"
 
@@ -32,6 +34,12 @@ extern "C" {
 namespace bdvmi {
 
 class XenAltp2mDomainState {
+
+	struct ViewCache {
+		std::unordered_map< uint32_t, uint16_t > views_;
+		std::mutex mutex_;
+	};
+
 public:
 	XenAltp2mDomainState( XC &xc, uint32_t domain, bool enable = true );
 	~XenAltp2mDomainState();
@@ -41,6 +49,8 @@ public:
 	int switchToView( uint16_t view );
 
 	int destroyView( uint16_t view );
+
+	int getCurrentView( uint32_t vcpu, uint16_t &view ) const;
 
 	int setVEInfoPage( uint32_t vcpu, xen_pfn_t gpa );
 
@@ -55,12 +65,20 @@ public:
 		return enabled_;
 	}
 
+	void enableCache( uint32_t vcpu, uint16_t view );
+
+	void disableCache( uint32_t vcpu );
+
+private:
+	bool isCacheEnabled( uint32_t vcpu, uint16_t &view ) const;
+
 private:
 	XC &               xc_;
 	uint32_t           domain_;
 	uint16_t           currentView_{ 0 };
 	std::set<uint16_t> views_;
 	bool               enabled_{ false };
+	mutable ViewCache  viewCache_;
 };
 
 } // namespace bdvmi
