@@ -1,6 +1,6 @@
 # Libbdvmi
 
-(c) 2015-2019 Bitdefender SRL
+(c) 2015-2020 Bitdefender SRL
 
 ## Usage
 
