@@ -35,8 +35,11 @@ AM_INIT_AUTOMAKE
 AC_PROG_CXX
 AC_PROG_INSTALL
 AC_PROG_LIBTOOL
+AC_LANG(C++)
 
 AX_CXX_COMPILE_STDCXX([14], [ext])
+
+AC_CHECK_HEADERS([boost/container/flat_map.hpp], [], [AC_MSG_ERROR(bailing out)])
 
 AC_CHECK_LIB(xenctrl, xc_interface_open, , AC_MSG_ERROR([Could not find libxenctrl!]))
 AC_CHECK_LIB(xenstore, xs_open, , AC_MSG_ERROR([Could not find libxenstore!]))
