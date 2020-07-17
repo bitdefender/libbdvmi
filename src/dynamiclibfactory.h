@@ -18,6 +18,7 @@
 
 #include <dlfcn.h>
 #include <functional>
+#include <stdexcept>
 #include <string>
 
 namespace bdvmi {

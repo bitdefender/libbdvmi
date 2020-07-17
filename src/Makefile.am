@@ -17,3 +17,5 @@ libbdvmi_la_SOURCES = backendfactory.cpp domainwatcher.cpp \
 		      version.cpp xcwrapper.cpp \
 		      xenaltp2m.cpp xswrapper.cpp \
 		      logger.cpp
+
+libbdvmi_la_LDFLAGS = -version-number 0:1
