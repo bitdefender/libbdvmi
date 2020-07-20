@@ -27,4 +27,4 @@ libbdvmi_la_LIBADD = $(KVMI_LIBS) $(UUID_LIBS) $(CRYPTO_LIBS)
 endif
 
 libbdvmi_la_LDFLAGS = -version-number 1:0 \
-	-Wl,--version-script,$(srcdir)/version
+	-Wl,--version-script,$(srcdir)/version.ld
