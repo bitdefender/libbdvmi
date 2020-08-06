@@ -1216,12 +1216,14 @@ bool KvmDriver::flushCREvents( unsigned short vcpu, const std::set<unsigned int>
 		}
 	}
 
-	for ( auto j = vcpuEvents_[vcpu].enabledCrs_.begin(); j != vcpuEvents_[vcpu].enabledCrs_.end(); ++j ) {
+	auto j = vcpuEvents_[vcpu].enabledCrs_.begin();
+	while ( j != vcpuEvents_[vcpu].enabledCrs_.end() ) {
 		if ( enabledCrs.find( *j ) == enabledCrs.end() ) {
 			if ( !registerCREvents( vcpu, *j, false ) )
 				return false;
-			vcpuEvents_[vcpu].enabledCrs_.erase( *j );
-		}
+			j = vcpuEvents_[vcpu].enabledCrs_.erase( j );
+		} else
+			++j;
 	}
 
 	return true;
@@ -1237,12 +1239,14 @@ bool KvmDriver::flushMSREvents( unsigned short vcpu, const std::set<unsigned int
 		}
 	}
 
-	for ( auto j = vcpuEvents_[vcpu].enabledMsrs_.begin(); j != vcpuEvents_[vcpu].enabledMsrs_.end(); ++j ) {
+	auto j = vcpuEvents_[vcpu].enabledMsrs_.begin();
+	while ( j != vcpuEvents_[vcpu].enabledMsrs_.end() ) {
 		if ( enabledMsrs.find( *j ) == enabledMsrs.end() ) {
 			if ( !registerMSREvents( vcpu, *j, false ) )
 				return false;
-			vcpuEvents_[vcpu].enabledMsrs_.erase( *j );
-		}
+			j = vcpuEvents_[vcpu].enabledMsrs_.erase( j );
+		} else
+			++j;
 	}
 
 	return true;
