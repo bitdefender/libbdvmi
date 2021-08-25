@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2021 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -147,9 +147,15 @@ bool Driver::maxGPFN( unsigned long long &gfn )
 	}
 
 	unsigned long long maxGpfn = 0;
+	bool trustworthy           = false;
 
-	if ( !maxGPFNImpl( maxGpfn ) )
+	if ( !maxGPFNImpl( maxGpfn, trustworthy ) )
 		return false;
+
+	if ( trustworthy ) {
+		gfn = maxGPFN_ = maxGpfn;
+		return true;
+	}
 
 		//
 		// The code below resided in the introspection engine (introcore), but it was decided that

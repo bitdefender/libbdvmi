@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2021 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -977,7 +977,7 @@ bool XenDriver::mtrrType( unsigned long long guestAddress, uint8_t &type ) const
 	return true;
 }
 
-bool XenDriver::maxGPFNImpl( unsigned long long &gfn )
+bool XenDriver::maxGPFNImpl( unsigned long long &gfn, bool &trustworthy )
 {
 	gfn = maxGPFN_;
 
@@ -988,6 +988,7 @@ bool XenDriver::maxGPFNImpl( unsigned long long &gfn )
 
 	// gfn = xpfn + 1;
 
+	trustworthy = false;
 	return true;
 }
 
