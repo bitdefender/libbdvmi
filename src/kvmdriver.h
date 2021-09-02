@@ -325,7 +325,7 @@ private:
 	int                               flags_{ KVMI_REP_OPTIMIZATIONS_FLAG };
 	void *                            domCtx_;
 	std::string                       domain_;
-	int64_t                           startTime_;
+	int64_t                           startTime_{ -1 };
 	mutable RegsCache                 regsCache_;
 	PageCache                         pageCache_;
 	bool                              suspending_{ false };

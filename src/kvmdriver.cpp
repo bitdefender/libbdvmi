@@ -125,8 +125,7 @@ KvmDriver::KvmDriver( const std::string &domain, bool useVE )
 
 	startTime_ = kvmi_get_starttime( domCtx_ );
 
-	logger << TRACE << "kvmi_get_starttime() => " << static_cast<int64_t>( startTime_ ) << " ms "
-	       << static_cast<uint32_t>( startTime_ / 1000 ) << " secs" << std::flush;
+	logger << TRACE << "kvmi_get_starttime() => " << startTime_ << " secs" << std::flush;
 
 	if ( useVE ) {
 		kvmi_eptp_support( domCtx_, &eptpSupported_ );
@@ -1254,11 +1253,6 @@ bool KvmDriver::flushMSREvents( unsigned short vcpu, const std::set<unsigned int
 
 uint32_t KvmDriver::startTime()
 {
-	if ( !startTime_ )
-		return static_cast<uint32_t>( -1 );
-
-	int64_t secs = startTime_ / 1000; // from milliseconds
-
 	return static_cast<uint32_t>( secs );
 }
 
