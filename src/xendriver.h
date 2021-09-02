@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2021 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -209,7 +209,7 @@ private:
 
 	static std::string queryUuid( XS &xs, const std::string &domain );
 
-	bool maxGPFNImpl( unsigned long long &gfn ) override;
+	bool maxGPFNImpl( unsigned long long &gfn, bool &trustworthy ) override;
 
 private:
 	mutable XS        xs_;

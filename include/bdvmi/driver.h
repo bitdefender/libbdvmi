@@ -280,7 +280,7 @@ private:
 	virtual bool getPageProtectionImpl( unsigned long long guestAddress, bool &read, bool &write, bool &execute,
 	                                    unsigned short view ) = 0;
 
-	virtual bool maxGPFNImpl( unsigned long long &gfn ) = 0;
+	virtual bool maxGPFNImpl( unsigned long long &gfn, bool &trustworthy ) = 0;
 
 private:
 	EventHandler *     handler_{ nullptr };

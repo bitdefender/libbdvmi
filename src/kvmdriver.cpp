@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2019 Bitdefender SRL, All rights reserved.
+// Copyright (c) 2015-2021 Bitdefender SRL, All rights reserved.
 //
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -1372,7 +1372,7 @@ bool KvmDriver::clearVcpuEvents()
 	return kickAllVcpus();
 }
 
-bool KvmDriver::maxGPFNImpl( unsigned long long &gfn )
+bool KvmDriver::maxGPFNImpl( unsigned long long &gfn, bool &trustworthy )
 {
 	int err;
 
@@ -1381,16 +1381,20 @@ bool KvmDriver::maxGPFNImpl( unsigned long long &gfn )
 		err = kvmi_get_maximum_gfn( domCtx_, &gfn );
 	}
 
-	if ( err < 0 )
+	if ( err ) {
 		logger << ERROR << "kvmi_get_maximum_gfn() has failed: " << strerror( errno ) << std::flush;
-	else
-		logger << TRACE << "kvmi_get_maximum_gfn() => " << HEXLOG( gfn ) << std::flush;
+		return false;
+	}
+
+	logger << TRACE << "kvmi_get_maximum_gfn() => " << HEXLOG( gfn ) << std::flush;
 
 	// introcore expects to receive the last accesible GFN, see
 	// introspection/introcore/guests.c (hvmi.git)
 	gfn = gfn - 1;
 
-	return !err;
+	trustworthy = true;
+
+	return true;
 }
 
 unsigned short KvmDriver::eptpIndex( unsigned short vcpu ) const
