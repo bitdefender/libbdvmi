@@ -1253,7 +1253,7 @@ bool KvmDriver::flushMSREvents( unsigned short vcpu, const std::set<unsigned int
 
 uint32_t KvmDriver::startTime()
 {
-	return static_cast<uint32_t>( secs );
+	return static_cast<uint32_t>( startTime_ );
 }
 
 void KvmDriver::pauseEventReceived()
