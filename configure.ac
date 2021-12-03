@@ -8,6 +8,7 @@ AC_CONFIG_HEADERS(config.h)
 
 CXXFLAGS="$CXXFLAGS -W -Wall -DXC_WANT_COMPAT_MAP_FOREIGN_API -DXC_WANT_COMPAT_EVTCHN_API -DXC_WANT_COMPAT_DEVICEMODEL_API"
 XENDIR=""
+enable_xen="yes"
 
 AC_ARG_ENABLE(debug,
     [  --enable-debug          compile with gdb debug information],
@@ -17,6 +18,9 @@ AC_ARG_ENABLE(optimize,
     [  --enable-optimize       optimize compiled code (-O2)],
     CXXFLAGS="$CXXFLAGS -O2")
 
+AC_ARG_ENABLE(xen,
+    [  --disable-xen           disable XEN support], enable_xen=no)
+
 AC_ARG_WITH(xen,
     [  --with-xen              specify Xen includes and libraries parent directory],
     XENDIR="$withval")
@@ -25,7 +29,7 @@ AC_ARG_ENABLE(kvmi,
     [  --enable-kvmi           enable KVMI support],
     CPPFLAGS="$CPPFLAGS -DUSE_KVMI")
 
-if test -n $XENDIR ; then
+if test -n $XENDIR -a "x$enable_xen" = "xyes"; then
     CFLAGS="-I$/XENDIR/include $CFLAGS"
     CXXFLAGS="-I$XENDIR/include $CXXFLAGS"
     LDFLAGS="-L$XENDIR/lib -Wl,-rpath,$XENDIR/lib $LDFLAGS"
@@ -41,8 +45,10 @@ AX_CXX_COMPILE_STDCXX([14], [ext])
 
 AC_CHECK_HEADERS([boost/container/flat_map.hpp], [], [AC_MSG_ERROR(bailing out)])
 
-AC_CHECK_LIB(xenctrl, xc_interface_open, , AC_MSG_ERROR([Could not find libxenctrl!]))
-AC_CHECK_LIB(xenstore, xs_open, , AC_MSG_ERROR([Could not find libxenstore!]))
+AS_IF([test "x$enable_xen" = "xyes"], [
+    AC_CHECK_LIB(xenctrl, xc_interface_open, , AC_MSG_ERROR([Could not find libxenctrl!]))
+    AC_CHECK_LIB(xenstore, xs_open, , AC_MSG_ERROR([Could not find libxenstore!]))
+])
 
 if test "x$enable_kvmi" = "xyes" ; then
     PKG_CHECK_MODULES(KVMI, [libkvmi])
@@ -50,7 +56,12 @@ if test "x$enable_kvmi" = "xyes" ; then
     PKG_CHECK_MODULES(CRYPTO, [libcrypto])
 fi
 
+AS_IF([test "x$enable_xen" != "xyes" -a "x$enable_kvmi" != "xyes"], [
+    AC_MSG_ERROR([At least one backend (Xen, KVM) must be enabled])
+])
+
 AM_CONDITIONAL([KVMI], [test "x$enable_kvmi" = "xyes"])
+AM_CONDITIONAL([XEN], [test "x$enable_xen" = "xyes"])
 
 AC_CHECK_TYPE(int32_t, int)
 AC_CHECK_TYPE(int16_t, short)

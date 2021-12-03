@@ -14,9 +14,11 @@
 // License along with this library.
 
 #include "bdvmi/backendfactory.h"
+#ifdef USE_XEN
 #include "xendriver.h"
 #include "xendomainwatcher.h"
 #include "xeneventmanager.h"
+#endif
 #ifdef USE_KVMI
 #include "kvmdriver.h"
 #include "kvmdomainwatcher.h"
@@ -36,8 +38,10 @@ BackendFactory::BackendFactory( BackendType type )
 std::unique_ptr<DomainWatcher> BackendFactory::domainWatcher( sig_atomic_t &sigStop )
 {
 	switch ( type_ ) {
+#ifdef USE_XEN
 		case BACKEND_XEN:
 			return std::make_unique<XenDomainWatcher>( sigStop );
+#endif
 #ifdef USE_KVMI
 		case BACKEND_KVM:
 			return std::make_unique<KvmDomainWatcher>( sigStop );
@@ -50,8 +54,10 @@ std::unique_ptr<DomainWatcher> BackendFactory::domainWatcher( sig_atomic_t &sigS
 std::unique_ptr<Driver> BackendFactory::driver( const std::string &domain, bool altp2m, bool hvmOnly )
 {
 	switch ( type_ ) {
+#ifdef USE_XEN
 		case BACKEND_XEN:
 			return std::make_unique<XenDriver>( domain, altp2m, hvmOnly );
+#endif
 #ifdef USE_KVMI
 		case BACKEND_KVM:
 			return std::make_unique<KvmDriver>( domain, altp2m );
@@ -64,8 +70,10 @@ std::unique_ptr<Driver> BackendFactory::driver( const std::string &domain, bool 
 std::unique_ptr<EventManager> BackendFactory::eventManager( Driver &driver, sig_atomic_t &sigStop )
 {
 	switch ( type_ ) {
+#ifdef USE_XEN
 		case BACKEND_XEN:
 			return std::make_unique<XenEventManager>( dynamic_cast<XenDriver &>( driver ), sigStop );
+#endif
 #ifdef USE_KVMI
 		case BACKEND_KVM:
 			return std::make_unique<KvmEventManager>( dynamic_cast<KvmDriver &>( driver ), sigStop );
