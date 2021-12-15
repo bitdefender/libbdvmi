@@ -11,13 +11,16 @@ noinst_HEADERS = dynamiclibfactory.h utils.h \
 		 kvmdriver.h kvmeventmanager.h
 
 libbdvmi_la_SOURCES = backendfactory.cpp domainwatcher.cpp \
-		      xendomainwatcher.cpp xendriver.cpp \
-		      xeneventmanager.cpp statscollector.cpp \
+		      statscollector.cpp \
 		      driver.cpp dynamiclibfactory.cpp \
 		      eventmanager.cpp pagecache.cpp \
-		      version.cpp xcwrapper.cpp \
-		      xenaltp2m.cpp xswrapper.cpp \
-		      logger.cpp
+		      version.cpp logger.cpp
+
+if XEN
+libbdvmi_la_SOURCES += xendomainwatcher.cpp xendriver.cpp \
+		       xeneventmanager.cpp xcwrapper.cpp \
+		       xenaltp2m.cpp xswrapper.cpp
+endif
 
 if KVMI
 libbdvmi_la_SOURCES += kvmdomainwatcher.cpp kvmdriver.cpp \
