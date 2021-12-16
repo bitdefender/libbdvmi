@@ -12,6 +12,11 @@ $ make
 ```
 This will build the library and the test under examples/.
 
+To build the library with KVM support (if libkvmi is installed), issue:
+```
+$ ./configure --enable-kvmi
+```
+
 To see the test in action, run (as root):
 ```
 # ./hookguest
