@@ -8,7 +8,6 @@ AC_CONFIG_HEADERS(config.h)
 
 CXXFLAGS="$CXXFLAGS -W -Wall -DXC_WANT_COMPAT_MAP_FOREIGN_API -DXC_WANT_COMPAT_EVTCHN_API -DXC_WANT_COMPAT_DEVICEMODEL_API"
 XENDIR=""
-enable_xen="yes"
 
 AC_ARG_ENABLE(debug,
     [  --enable-debug          compile with gdb debug information],
@@ -19,7 +18,7 @@ AC_ARG_ENABLE(optimize,
     CXXFLAGS="$CXXFLAGS -O2")
 
 AC_ARG_ENABLE(xen,
-    [  --disable-xen           disable XEN support], enable_xen=no)
+    [  --disable-xen           disable XEN support], [], [enable_xen=yes])
 
 AC_ARG_WITH(xen,
     [  --with-xen              specify Xen includes and libraries parent directory],
@@ -29,7 +28,7 @@ AC_ARG_ENABLE(kvmi,
     [  --enable-kvmi           enable KVMI support],
     CPPFLAGS="$CPPFLAGS -DUSE_KVMI")
 
-if test -n $XENDIR -a "x$enable_xen" = "xyes"; then
+if test -n $XENDIR && test "x$enable_xen" = "xyes"; then
     CFLAGS="-I$/XENDIR/include $CFLAGS"
     CXXFLAGS="-I$XENDIR/include $CXXFLAGS"
     LDFLAGS="-L$XENDIR/lib -Wl,-rpath,$XENDIR/lib $LDFLAGS"
