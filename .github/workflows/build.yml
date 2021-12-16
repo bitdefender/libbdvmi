@@ -1,0 +1,43 @@
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Checkout libkvmi
+      uses: actions/checkout@v2
+      with:
+        repository: bitdefender/libkvmi
+        path: libkvmi
+
+    - name: Build and install libkvmi
+      run: |
+           cd libkvmi
+           ./bootstrap
+           ./configure
+           make -j$(nproc)
+           sudo make install
+           cd ..
+
+    - name: Install other dependencies
+      run: sudo apt install -y libjsoncpp-dev libboost-dev libxen-dev
+
+    - name: Bootstrap
+      run: ./bootstrap
+
+    - name: Build for Xen
+      run: |
+           ./configure
+           make -j$(nproc)
+
+    - name: Build for KVM
+      run: |
+           ./configure --enable-kvmi --disable-xen
+           make -j$(nproc)
+
+    - name: Build and install for Xen and KVM
+      run: |
+           ./configure --enable-kvmi
+           make -j$(nproc)
+           sudo make install
