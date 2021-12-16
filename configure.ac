@@ -26,7 +26,7 @@ AC_ARG_WITH(xen,
 
 AC_ARG_ENABLE(kvmi,
     [  --enable-kvmi           enable KVMI support],
-    CPPFLAGS="$CPPFLAGS -DUSE_KVMI")
+    CPPFLAGS="$CPPFLAGS -DUSE_KVMI",[enable_kvmi=no])
 
 if test -n $XENDIR && test "x$enable_xen" = "xyes"; then
     CFLAGS="-I$/XENDIR/include $CFLAGS"
@@ -55,17 +55,21 @@ if test "x$enable_kvmi" = "xyes" ; then
     PKG_CHECK_MODULES(CRYPTO, [libcrypto])
 fi
 
+AC_CHECK_TYPE(int32_t, int)
+AC_CHECK_TYPE(int16_t, short)
+AC_CHECK_TYPE(uint16_t, unsigned short)
+AC_CHECK_TYPE(uint32_t, unsigned int)
+AC_CHECK_TYPE(uint64_t, unsigned long long)
+
+echo "===
+XEN: $enable_xen
+KVM: $enable_kvmi
+==="
 AS_IF([test "x$enable_xen" != "xyes" -a "x$enable_kvmi" != "xyes"], [
     AC_MSG_ERROR([At least one backend (Xen, KVM) must be enabled])
 ])
 
 AM_CONDITIONAL([KVMI], [test "x$enable_kvmi" = "xyes"])
 AM_CONDITIONAL([XEN], [test "x$enable_xen" = "xyes"])
-
-AC_CHECK_TYPE(int32_t, int)
-AC_CHECK_TYPE(int16_t, short)
-AC_CHECK_TYPE(uint16_t, unsigned short)
-AC_CHECK_TYPE(uint32_t, unsigned int)
-AC_CHECK_TYPE(uint64_t, unsigned long long)
 
 AC_OUTPUT(Makefile src/Makefile include/Makefile examples/Makefile libbdvmi.pc)
